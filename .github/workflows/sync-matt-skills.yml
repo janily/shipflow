@@ -1,0 +1,45 @@
+name: Sync Matt Pocock Skills
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sync-matt-skills.yml'
+      - 'scripts/sync-matt-skills.sh'
+      - 'scripts/upstream-map.sh'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync upstream skills
+        run: ./scripts/sync-matt-skills.sh main
+
+      - name: Verify bundle
+        run: ./scripts/verify-bundle.sh
+
+      - name: Verify exact upstream mirror
+        run: ./scripts/verify-upstream.sh
+
+      - name: Commit upstream changes
+        run: |
+          if git diff --quiet; then
+            echo "Already in sync."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add skills UPSTREAM_COMMIT MATT_LICENSE
+          git commit -m "chore: sync Matt Pocock skills"
+          git push

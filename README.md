@@ -1,96 +1,117 @@
 # ShipFlow
 
-ShipFlow is a one-trigger orchestrator for Matt Pocock's validated AI coding workflow:
+ShipFlow packages Matt Pocock's proven engineering workflow into a standard `skills` bundle, plus a small route guide that tells you which workflow boundary comes next.
+
+The bundled route is:
 
 ```text
-grill-with-docs → to-spec → to-tickets → implement → code-review
+grill-with-docs → to-spec → to-tickets → fresh context → implement
+                                                     └→ tdd + code-review
 ```
 
-ShipFlow does **not** reimplement those skills. Matt Pocock's installed upstream skills remain the source of truth; ShipFlow only coordinates them so you don't have to invoke each stage manually.
+The Matt Pocock skills in this repository are mirrored from `mattpocock/skills` without modifying their contents. `skills/shipflow` is the only ShipFlow-owned skill.
 
-## One-click install
-
-The installer is fetched through GitHub's Contents API to avoid stale Raw CDN caches.
+## Install with the standard skills CLI
 
 ### Codex
 
 ```bash
-curl -fsSL \
-  -H 'Accept: application/vnd.github.raw+json' \
-  'https://api.github.com/repos/janily/shipflow/contents/install.sh?ref=main' \
-  | bash -s -- --agent codex
+npx skills@latest add janily/shipflow --skill '*' -a codex --copy -y
 ```
 
 ### Claude Code
 
 ```bash
-curl -fsSL \
-  -H 'Accept: application/vnd.github.raw+json' \
-  'https://api.github.com/repos/janily/shipflow/contents/install.sh?ref=main' \
-  | bash
+npx skills@latest add janily/shipflow --skill '*' -a claude-code --copy -y
 ```
 
 ### Cursor
 
 ```bash
-curl -fsSL \
-  -H 'Accept: application/vnd.github.raw+json' \
-  'https://api.github.com/repos/janily/shipflow/contents/install.sh?ref=main' \
-  | bash -s -- --agent cursor
+npx skills@latest add janily/shipflow --skill '*' -a cursor --copy -y
 ```
 
 ### Global Codex install
 
 ```bash
-curl -fsSL \
-  -H 'Accept: application/vnd.github.raw+json' \
-  'https://api.github.com/repos/janily/shipflow/contents/install.sh?ref=main' \
-  | bash -s -- --agent codex --global
+npx skills@latest add janily/shipflow --skill '*' -a codex --copy -g -y
 ```
 
-A current run starts with:
+No custom installer is required. Installation, lock tracking, and updates stay inside the standard `skills` CLI ecosystem.
+
+Verify the install with:
+
+```bash
+npx skills list -a codex
+```
+
+A project-level Codex install should contain these 10 skills under `.agents/skills/`:
 
 ```text
-ShipFlow installer 2.0.0
+code-review
+domain-modeling
+grill-with-docs
+grilling
+implement
+setup-matt-pocock-skills
+shipflow
+tdd
+to-spec
+to-tickets
 ```
 
-## How installation works
+## First-time repository setup
 
-The installer deliberately avoids making the final filesystem state depend on the behavior of another installer CLI.
-
-1. Capture the absolute project root.
-2. Download the current `mattpocock/skills` `main` source archive once.
-3. Locate each required upstream Skill by its YAML frontmatter `name:`.
-4. Copy the **entire original Skill directory** into the selected agent's standard skill root. Supporting files such as references, scripts and agent metadata are preserved.
-5. Download the current ShipFlow `SKILL.md` from this repository.
-6. Verify all 10 required Skills by checking both the file and its `name:` frontmatter.
-7. Print the final installed `SKILL.md` paths before reporting success.
-
-No Matt Pocock Skill body is embedded or rewritten in ShipFlow. Every install pulls the current upstream files directly from `mattpocock/skills`.
-
-For a project-level Codex install, the expected result is:
+Run Matt's setup skill once per repository:
 
 ```text
-.agents/skills/
-├── code-review/
-├── domain-modeling/
-├── grill-with-docs/
-├── grilling/
-├── implement/
-├── setup-matt-pocock-skills/
-├── shipflow/
-├── tdd/
-├── to-spec/
-└── to-tickets/
+/setup-matt-pocock-skills
 ```
 
-Each directory contains its own `SKILL.md`; Matt's Skill directories may also contain their original supporting files.
+For a local file-based tracker, choose **Local Markdown**. Matt's setup skill owns the tracker conventions and file layout.
 
-To update ShipFlow **and** Matt's upstream Skills, rerun the same one-click installer.
+## Use ShipFlow v1
 
-## What gets installed
+ShipFlow v1 is deliberately a workflow guide, not a recursive skill runner.
 
-From the current `mattpocock/skills` upstream source:
+```text
+/shipflow Add refresh-token rotation while preserving current sessions
+```
+
+It inspects the current workflow state and returns the next explicit Matt Pocock command, for example:
+
+```text
+Current phase: discovery
+Next: /grill-with-docs Add refresh-token rotation while preserving current sessions
+Reason: the change has not reached shared understanding yet.
+```
+
+Why not make the Skill recursively call every stage? Matt's current invocation model treats `grill-with-docs`, `to-spec`, `to-tickets`, and `implement` as user-invoked workflow boundaries. ShipFlow v1 preserves that contract rather than emulating or bypassing it.
+
+## ShipFlow Runner v2
+
+True one-trigger execution belongs one level above Skills. The planned external runner will coordinate agent sessions and context boundaries while invoking the original user-facing skills in sequence:
+
+```text
+shipflow run <goal>
+    ↓
+planning session
+  grill-with-docs
+  to-spec
+  to-tickets
+    ↓
+close planning context
+    ↓
+fresh implementation session
+  implement
+  └─ tdd + code-review
+```
+
+See [`workflows/shipflow-runner.md`](workflows/shipflow-runner.md) for the implementation contract.
+
+## Upstream mirror
+
+The following directories are exact mirrors from `mattpocock/skills`:
 
 - `setup-matt-pocock-skills`
 - `grill-with-docs`
@@ -102,71 +123,20 @@ From the current `mattpocock/skills` upstream source:
 - `tdd`
 - `code-review`
 
-From this repository:
+The pinned upstream commit is recorded in [`UPSTREAM_COMMIT`](UPSTREAM_COMMIT). Matt's original MIT license is preserved in [`MATT_LICENSE`](MATT_LICENSE).
 
-- `shipflow`
+A GitHub Action periodically syncs these directories from Matt's `main` branch. The mirror is verified against the recorded upstream commit so accidental local edits are caught.
 
-## How ShipFlow executes upstream skills
+## Updating
 
-Different coding agents expose Skills differently. Some runtimes provide a native way to load or invoke another installed skill; others may not expose a dedicated Skill tool.
+After this repository syncs a newer Matt upstream version, users can update through the normal CLI:
 
-ShipFlow handles both cases:
-
-```text
-1. Prefer native skill loading/invocation when available.
-2. Otherwise resolve the installed upstream SKILL.md file.
-3. Read the complete current upstream instructions.
-4. Execute those instructions faithfully.
-5. Resolve nested skill references the same way.
+```bash
+npx skills update -y
 ```
-
-For Codex project installs the workflow is available at paths such as:
-
-```text
-.agents/skills/grill-with-docs/SKILL.md
-.agents/skills/to-spec/SKILL.md
-.agents/skills/to-tickets/SKILL.md
-.agents/skills/implement/SKILL.md
-.agents/skills/code-review/SKILL.md
-.agents/skills/shipflow/SKILL.md
-```
-
-**Important:** if a runtime has no dedicated Skill tool, ShipFlow must not imitate Matt's workflow from memory. It must read the installed upstream `SKILL.md`. If an upstream skill cannot be resolved, ShipFlow fails closed and reports the missing dependency or capability.
-
-## Repository setup
-
-Matt's workflow relies on repository-level configuration. In each repository, run:
-
-```text
-/setup-matt-pocock-skills
-```
-
-For local file-based tracking, choose **Local Markdown**. ShipFlow follows Matt's tracker conventions rather than inventing its own storage format.
-
-## Use
-
-Once setup is complete:
-
-```text
-/shipflow Add refresh-token rotation while preserving current sessions.
-```
-
-ShipFlow coordinates:
-
-```text
-1. grill-with-docs
-2. to-spec
-3. to-tickets
-4. implement
-5. code-review
-```
-
-"One trigger" means you don't manually invoke the next stage. It does **not** bypass confirmation points required by Matt's upstream skills. If an upstream skill asks a question, answer it and ShipFlow resumes that stage before continuing automatically.
 
 ## Design principle
 
-ShipFlow is deliberately thin:
+> Matt's skills own the engineering method. ShipFlow owns distribution, routing, and—later—the external runner.
 
-> Matt's skills own the engineering method. ShipFlow owns only resolution, ordering, and resume behavior.
-
-If ShipFlow conflicts with an installed upstream Matt Pocock skill, the installed upstream skill wins.
+ShipFlow does not rewrite Matt's engineering skills.
