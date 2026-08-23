@@ -88,26 +88,60 @@ Reason: the change has not reached shared understanding yet.
 
 Why not make the Skill recursively call every stage? Matt's current invocation model treats `grill-with-docs`, `to-spec`, `to-tickets`, and `implement` as user-invoked workflow boundaries. ShipFlow v1 preserves that contract rather than emulating or bypassing it.
 
-## ShipFlow Runner v2
+## Codex Runner MVP
 
-True one-trigger execution belongs one level above Skills. The planned external runner will coordinate agent sessions and context boundaries while invoking the original user-facing skills in sequence:
+The `feat/codex-runner-mvp` branch contains the first external runner for true one-trigger execution. It uses the official `@openai/codex-sdk` and keeps Matt's user-invoked skills as explicit top-level Codex turns.
 
-```text
-shipflow run <goal>
-    ↓
-planning session
-  grill-with-docs
-  to-spec
-  to-tickets
-    ↓
-close planning context
-    ↓
-fresh implementation session
-  implement
-  └─ tdd + code-review
+For branch testing:
+
+```bash
+git clone https://github.com/janily/shipflow.git
+cd shipflow
+git checkout feat/codex-runner-mvp
+npm install
+npm link
 ```
 
-See [`workflows/shipflow-runner.md`](workflows/shipflow-runner.md) for the implementation contract.
+The target repository still needs the standard ShipFlow skill bundle installed. Run the runner from a feature branch in that target repository:
+
+```bash
+shipflow run "Add refresh-token rotation while preserving current sessions" --agent codex
+```
+
+The MVP executes:
+
+```text
+optional setup thread
+        ↓
+fresh planning thread
+  $grill-with-docs <goal>
+  $to-spec
+  $to-tickets <spec>
+        ↓
+close planning context
+        ↓
+fresh Codex thread per ticket
+  $implement <ticket>
+  └─ upstream tdd + code-review + commit
+```
+
+Human questions remain interactive and continue on the same active Codex thread. Durable orchestration state is stored under `<git-dir>/shipflow/runs/<run-id>.json`, outside the working tree.
+
+Resume a persisted human checkpoint or blocker with:
+
+```bash
+shipflow resume <run-id>
+```
+
+Safety defaults:
+
+- refuses `main`/`master` unless `--allow-main` is explicit,
+- refuses unrelated dirty changes unless `--allow-dirty` is explicit,
+- uses Codex `workspace-write` with approval policy `never`,
+- disables network access unless `--network` is explicit,
+- fails if required skills/spec/tickets are missing or an `implement` stage returns without the upstream-required commit.
+
+The MVP intentionally does not auto-replay a turn interrupted while Codex is actively running; resume is guaranteed only at persisted human/blocker checkpoints. See [`workflows/shipflow-runner.md`](workflows/shipflow-runner.md) for the full contract.
 
 ## Upstream mirror
 
@@ -159,6 +193,6 @@ Matt's original MIT license is preserved in [`MATT_LICENSE`](MATT_LICENSE). The 
 
 ## Design principle
 
-> Matt's skills own the engineering method. ShipFlow owns distribution, routing, and—later—the external runner.
+> Matt's skills own the engineering method. ShipFlow owns distribution, routing, and the external runner.
 
 ShipFlow does not rewrite Matt's engineering skills.
