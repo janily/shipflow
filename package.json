@@ -15,6 +15,6 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@openai/codex-sdk": "^0.149.0"
+    "@openai/codex-sdk": "0.149.0"
   }
 }
