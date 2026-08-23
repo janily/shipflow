@@ -10,7 +10,7 @@ ShipFlow does **not** reimplement those skills. Matt Pocock's installed upstream
 
 ## One-click install
 
-To avoid stale `raw.githubusercontent.com` installer caches, the examples below fetch `install.sh` through GitHub's Contents API.
+The installer is fetched through GitHub's Contents API to avoid stale Raw CDN caches.
 
 ### Codex
 
@@ -51,49 +51,46 @@ curl -fsSL \
 A current run starts with:
 
 ```text
-ShipFlow installer 1.2.0
+ShipFlow installer 2.0.0
 ```
 
 ## How installation works
 
-The installer is intentionally defensive:
+The installer deliberately avoids making the final filesystem state depend on the behavior of another installer CLI.
 
-1. Capture the absolute project root before running any child commands.
-2. Install **ShipFlow first**.
-3. Prefer the official `skills` CLI using a direct `SKILL.md` URL with `--copy`.
-4. Immediately verify that the expected ShipFlow file exists and contains `name: shipflow`.
-5. If the CLI path fails or returns without producing the file, fall back to downloading `SKILL.md` directly into the agent's standard skill directory.
-6. Install Matt Pocock's required upstream skills with the official `skills` CLI.
-7. Verify ShipFlow again after the upstream install and restore it if necessary.
-8. Print every installed `SKILL.md` under the final skill root before reporting success.
+1. Capture the absolute project root.
+2. Download the current `mattpocock/skills` `main` source archive once.
+3. Locate each required upstream Skill by its YAML frontmatter `name:`.
+4. Copy the **entire original Skill directory** into the selected agent's standard skill root. Supporting files such as references, scripts and agent metadata are preserved.
+5. Download the current ShipFlow `SKILL.md` from this repository.
+6. Verify all 10 required Skills by checking both the file and its `name:` frontmatter.
+7. Print the final installed `SKILL.md` paths before reporting success.
 
-For a project-level Codex install the required final file is:
+No Matt Pocock Skill body is embedded or rewritten in ShipFlow. Every install pulls the current upstream files directly from `mattpocock/skills`.
+
+For a project-level Codex install, the expected result is:
 
 ```text
-.agents/skills/shipflow/SKILL.md
+.agents/skills/
+├── code-review/
+├── domain-modeling/
+├── grill-with-docs/
+├── grilling/
+├── implement/
+├── setup-matt-pocock-skills/
+├── shipflow/
+├── tdd/
+├── to-spec/
+└── to-tickets/
 ```
 
-The `skills` CLI itself documents Codex's project path as `.agents/skills/` and supports both direct `SKILL.md` downloads and the `--copy` installation mode.
+Each directory contains its own `SKILL.md`; Matt's Skill directories may also contain their original supporting files.
 
-If you already have Matt's upstream skills and only want to install ShipFlow for Codex:
-
-```bash
-npx skills@latest add \
-  'https://raw.githubusercontent.com/janily/shipflow/main/SKILL.md' \
-  --copy -a codex -y
-```
-
-If that command is blocked by your local network/runtime, the deterministic fallback is:
-
-```bash
-mkdir -p .agents/skills/shipflow && \
-  curl -fL 'https://raw.githubusercontent.com/janily/shipflow/main/SKILL.md' \
-  -o .agents/skills/shipflow/SKILL.md
-```
+To update ShipFlow **and** Matt's upstream Skills, rerun the same one-click installer.
 
 ## What gets installed
 
-From `mattpocock/skills`:
+From the current `mattpocock/skills` upstream source:
 
 - `setup-matt-pocock-skills`
 - `grill-with-docs`
@@ -109,8 +106,6 @@ From this repository:
 
 - `shipflow`
 
-The upstream skill bodies are not copied, forked, or modified here.
-
 ## How ShipFlow executes upstream skills
 
 Different coding agents expose Skills differently. Some runtimes provide a native way to load or invoke another installed skill; others may not expose a dedicated Skill tool.
@@ -125,7 +120,7 @@ ShipFlow handles both cases:
 5. Resolve nested skill references the same way.
 ```
 
-For Codex project installs the workflow is available under paths such as:
+For Codex project installs the workflow is available at paths such as:
 
 ```text
 .agents/skills/grill-with-docs/SKILL.md
