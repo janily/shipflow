@@ -1,0 +1,26 @@
+name: Verify Skill Bundle
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify bundle structure
+        run: ./scripts/verify-bundle.sh
+
+      - name: Verify exact Matt upstream mirror
+        run: ./scripts/verify-upstream.sh
+
+      - name: Verify skills CLI discovery
+        run: npx skills@latest add . --list
