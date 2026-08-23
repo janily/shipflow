@@ -10,8 +10,12 @@
 8. **Nested dependency resolution.** When an upstream skill references `grilling`, `domain-modeling`, `tdd`, or `code-review`, ShipFlow must resolve the installed dependency using the same native-load-or-read-file protocol rather than reproducing it locally.
 9. **Fail closed on missing runtime capability.** If an upstream instruction requires a capability that cannot be provided, ShipFlow must report the gap instead of claiming an improvised substitute is equivalent.
 10. **Installed upstream wins.** If ShipFlow wording conflicts with the currently installed Matt Pocock skill, the installed upstream `SKILL.md` takes precedence.
-11. **Installer invariant: Codex path.** A project-level Codex installation is successful only when `.agents/skills/shipflow/SKILL.md` exists and is non-empty.
-12. **Installer invariant: no CLI dependency for ShipFlow itself.** The installer may use `skills` CLI for Matt's multi-skill repository, but ShipFlow's own single `SKILL.md` must be downloaded and written directly to the target agent skill directory.
-13. **Installer invariant: validate before copy.** The downloaded file must contain `name: shipflow` in frontmatter before it replaces the installed file.
-14. **Installer invariant: fail closed.** A failed download, invalid frontmatter, missing destination file, or invalid installed file must cause a non-zero installer exit.
-15. **Installer regression: stale raw installer.** Public one-click commands should use a cache-busting query string so users behind caching proxies do not repeatedly execute an older `install.sh`.
+11. **Installer invariant: absolute project root.** Project-level destination paths must be derived from the captured startup working directory, not from a later child-process working directory.
+12. **Installer invariant: ShipFlow first.** ShipFlow must be installed and verified before invoking Matt's multi-skill installer, so an upstream CLI failure cannot silently prevent ShipFlow from being attempted.
+13. **Installer invariant: official direct-download copy path.** ShipFlow should first use `skills add <SKILL.md URL> --copy`, matching the official direct-download installation path.
+14. **Installer invariant: deterministic fallback.** If the CLI exits non-zero or returns without creating the expected file, the installer must download the validated `SKILL.md` directly into the agent's standard skill directory.
+15. **Installer invariant: Codex path.** A project-level Codex installation is successful only when `.agents/skills/shipflow/SKILL.md` exists, is non-empty, and contains `name: shipflow`.
+16. **Installer invariant: post-upstream verification.** After Matt's skills are installed, ShipFlow must be checked again and restored if it disappeared.
+17. **Installer invariant: visible final state.** The installer must print the final skill root and discovered `SKILL.md` files before reporting success.
+18. **Installer invariant: fail closed.** A failed CLI install plus failed fallback, invalid frontmatter, or missing final file must produce a non-zero exit.
+19. **Installer regression: stale installer.** Public one-click examples should use GitHub's Contents API for `install.sh` instead of relying on a potentially stale Raw CDN response.
