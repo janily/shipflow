@@ -10,61 +10,86 @@ ShipFlow does **not** reimplement those skills. Matt Pocock's installed upstream
 
 ## One-click install
 
+To avoid stale `raw.githubusercontent.com` installer caches, the examples below fetch `install.sh` through GitHub's Contents API.
+
 ### Codex
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/janily/shipflow/main/install.sh?ts=$(date +%s)" | bash -s -- --agent codex
+curl -fsSL \
+  -H 'Accept: application/vnd.github.raw+json' \
+  'https://api.github.com/repos/janily/shipflow/contents/install.sh?ref=main' \
+  | bash -s -- --agent codex
 ```
 
 ### Claude Code
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/janily/shipflow/main/install.sh?ts=$(date +%s)" | bash
+curl -fsSL \
+  -H 'Accept: application/vnd.github.raw+json' \
+  'https://api.github.com/repos/janily/shipflow/contents/install.sh?ref=main' \
+  | bash
 ```
 
 ### Cursor
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/janily/shipflow/main/install.sh?ts=$(date +%s)" | bash -s -- --agent cursor
+curl -fsSL \
+  -H 'Accept: application/vnd.github.raw+json' \
+  'https://api.github.com/repos/janily/shipflow/contents/install.sh?ref=main' \
+  | bash -s -- --agent cursor
 ```
 
-### Global install
+### Global Codex install
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/janily/shipflow/main/install.sh?ts=$(date +%s)" | bash -s -- --agent codex --global
+curl -fsSL \
+  -H 'Accept: application/vnd.github.raw+json' \
+  'https://api.github.com/repos/janily/shipflow/contents/install.sh?ref=main' \
+  | bash -s -- --agent codex --global
 ```
 
 A current run starts with:
 
 ```text
-ShipFlow installer 1.1.0
+ShipFlow installer 1.2.0
 ```
 
 ## How installation works
 
-The installer deliberately uses two different mechanisms:
+The installer is intentionally defensive:
 
-1. **Matt Pocock's multi-skill repository** is installed with the official `skills` CLI.
-2. **ShipFlow itself is a single `SKILL.md` file**, so the installer downloads it directly to the target agent's standard skill directory.
-3. The installer validates the downloaded frontmatter and verifies the final file before reporting success.
+1. Capture the absolute project root before running any child commands.
+2. Install **ShipFlow first**.
+3. Prefer the official `skills` CLI using a direct `SKILL.md` URL with `--copy`.
+4. Immediately verify that the expected ShipFlow file exists and contains `name: shipflow`.
+5. If the CLI path fails or returns without producing the file, fall back to downloading `SKILL.md` directly into the agent's standard skill directory.
+6. Install Matt Pocock's required upstream skills with the official `skills` CLI.
+7. Verify ShipFlow again after the upstream install and restore it if necessary.
+8. Print every installed `SKILL.md` under the final skill root before reporting success.
 
-For a Codex project install the final file must be:
+For a project-level Codex install the required final file is:
 
 ```text
 .agents/skills/shipflow/SKILL.md
 ```
 
-This is intentional. The `skills` CLI ultimately installs Codex project skills under `.agents/skills/<skill-name>`. ShipFlow avoids an unnecessary repository-discovery layer and writes its single file directly to that standard location.
+The `skills` CLI itself documents Codex's project path as `.agents/skills/` and supports both direct `SKILL.md` downloads and the `--copy` installation mode.
 
-If you already have Matt's upstream skills and only need ShipFlow for Codex, you can install it directly:
+If you already have Matt's upstream skills and only want to install ShipFlow for Codex:
+
+```bash
+npx skills@latest add \
+  'https://raw.githubusercontent.com/janily/shipflow/main/SKILL.md' \
+  --copy -a codex -y
+```
+
+If that command is blocked by your local network/runtime, the deterministic fallback is:
 
 ```bash
 mkdir -p .agents/skills/shipflow && \
-  curl -fL "https://raw.githubusercontent.com/janily/shipflow/main/SKILL.md?ts=$(date +%s)" \
+  curl -fL 'https://raw.githubusercontent.com/janily/shipflow/main/SKILL.md' \
   -o .agents/skills/shipflow/SKILL.md
 ```
-
-To update ShipFlow, simply rerun the installer. Matt's upstream skills continue to be managed by the `skills` CLI.
 
 ## What gets installed
 
