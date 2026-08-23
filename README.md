@@ -13,26 +13,28 @@ ShipFlow does **not** reimplement those skills. Matt Pocock's upstream skills re
 ### Claude Code
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/janily/shipflow/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/janily/shipflow/main/install-v2.sh | bash
 ```
 
 ### Codex
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/janily/shipflow/main/install.sh | bash -s -- --agent codex
+curl -fsSL https://raw.githubusercontent.com/janily/shipflow/main/install-v2.sh | bash -s -- --agent codex
 ```
 
 ### Cursor
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/janily/shipflow/main/install.sh | bash -s -- --agent cursor
+curl -fsSL https://raw.githubusercontent.com/janily/shipflow/main/install-v2.sh | bash -s -- --agent cursor
 ```
 
 ### Global install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/janily/shipflow/main/install.sh | bash -s -- --global
+curl -fsSL https://raw.githubusercontent.com/janily/shipflow/main/install-v2.sh | bash -s -- --global
 ```
+
+A successful fetch starts by printing `ShipFlow installer v2`, which makes it easy to confirm you are not running a stale cached installer.
 
 The installer installs the required skills directly from `mattpocock/skills`, then installs ShipFlow from this repository.
 
