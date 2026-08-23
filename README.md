@@ -1,6 +1,6 @@
 # ShipFlow
 
-ShipFlow packages Matt Pocock's proven engineering workflow into a standard `skills` bundle, plus a small route guide that tells you which workflow boundary comes next.
+ShipFlow packages and orchestrates [Matt Pocock's](https://github.com/mattpocock) open-source engineering skills into a standard `skills` bundle, plus a small route guide that tells you which workflow boundary comes next.
 
 The bundled route is:
 
@@ -9,7 +9,7 @@ grill-with-docs → to-spec → to-tickets → fresh context → implement
                                                      └→ tdd + code-review
 ```
 
-The Matt Pocock skills in this repository are mirrored from `mattpocock/skills` without modifying their contents. `skills/shipflow` is the only ShipFlow-owned skill.
+The Matt Pocock skills in this repository are mirrored from [`mattpocock/skills`](https://github.com/mattpocock/skills) without modifying their contents. `skills/shipflow` is the only ShipFlow-owned skill.
 
 ## Install with the standard skills CLI
 
@@ -134,6 +134,28 @@ After this repository syncs a newer Matt upstream version, users can update thro
 ```bash
 npx skills update -y
 ```
+
+## Acknowledgements
+
+ShipFlow is built on top of the engineering workflow and skills created by [Matt Pocock](https://github.com/mattpocock).
+
+The following skills bundled in this repository are mirrored from [`mattpocock/skills`](https://github.com/mattpocock/skills) and remain Matt's work:
+
+- `setup-matt-pocock-skills`
+- `grill-with-docs`
+- `grilling`
+- `domain-modeling`
+- `to-spec`
+- `to-tickets`
+- `implement`
+- `tdd`
+- `code-review`
+
+Huge thanks to Matt for sharing the workflow, the skills, and the ideas around context engineering that inspired ShipFlow.
+
+ShipFlow does not claim authorship of these upstream skills. Its contribution is the standard multi-skill distribution, workflow routing, upstream synchronization, and the external runner being developed for end-to-end orchestration.
+
+Matt's original MIT license is preserved in [`MATT_LICENSE`](MATT_LICENSE). The exact upstream revision mirrored by this repository is recorded in [`UPSTREAM_COMMIT`](UPSTREAM_COMMIT).
 
 ## Design principle
 
