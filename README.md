@@ -8,6 +8,8 @@ grill-with-docs → to-spec → to-tickets → implement → code-review
 
 ShipFlow does **not** reimplement those skills. Matt Pocock's upstream skills remain the source of truth; ShipFlow only coordinates them so you don't have to invoke each stage manually.
 
+ShipFlow is published as a single root-level `SKILL.md`, so the skills CLI can install it directly from this repository without an extra skill-discovery filter.
+
 ## One-click install
 
 ### Claude Code
@@ -34,7 +36,13 @@ curl -fsSL https://raw.githubusercontent.com/janily/shipflow/main/install.sh | b
 curl -fsSL https://raw.githubusercontent.com/janily/shipflow/main/install.sh | bash -s -- --global
 ```
 
-The installer installs the required skills directly from `mattpocock/skills`, then installs ShipFlow from this repository.
+The installer installs the required skills directly from `mattpocock/skills`, installs ShipFlow from the repository root, and verifies that `shipflow` appears in the installed skill list before reporting success.
+
+If you already have Matt's upstream skills and only want ShipFlow:
+
+```bash
+npx skills@latest add janily/shipflow -a codex -y
+```
 
 ## What gets installed
 
