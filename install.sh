@@ -1,16 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTALLER_VERSION="1.2.0"
+INSTALLER_VERSION="2.0.0"
 AGENT="claude-code"
 GLOBAL=false
 PROJECT_ROOT="$(pwd -P)"
-SHIPFLOW_SKILL_URL="https://raw.githubusercontent.com/janily/shipflow/main/SKILL.md"
-TMP_FILE=""
+SHIPFLOW_SKILL_API="https://api.github.com/repos/janily/shipflow/contents/SKILL.md?ref=main"
+MATT_TARBALL_URL="https://api.github.com/repos/mattpocock/skills/tarball/main"
+TMP_DIR=""
+
+REQUIRED_UPSTREAM_SKILLS="
+setup-matt-pocock-skills
+grill-with-docs
+grilling
+domain-modeling
+to-spec
+to-tickets
+implement
+tdd
+code-review
+"
 
 cleanup() {
-  if [[ -n "${TMP_FILE:-}" && -f "$TMP_FILE" ]]; then
-    rm -f "$TMP_FILE"
+  if [[ -n "${TMP_DIR:-}" && -d "$TMP_DIR" ]]; then
+    rm -rf "$TMP_DIR"
   fi
 }
 trap cleanup EXIT
@@ -41,164 +54,196 @@ case "$AGENT" in
     ;;
 esac
 
-shipflow_path() {
+skills_root() {
   case "$AGENT" in
     codex)
       if [[ "$GLOBAL" == true ]]; then
-        printf '%s\n' "${CODEX_HOME:-$HOME/.codex}/skills/shipflow/SKILL.md"
+        printf '%s\n' "${CODEX_HOME:-$HOME/.codex}/skills"
       else
-        printf '%s\n' "$PROJECT_ROOT/.agents/skills/shipflow/SKILL.md"
+        printf '%s\n' "$PROJECT_ROOT/.agents/skills"
       fi
       ;;
     cursor)
       if [[ "$GLOBAL" == true ]]; then
-        printf '%s\n' "$HOME/.cursor/skills/shipflow/SKILL.md"
+        printf '%s\n' "$HOME/.cursor/skills"
       else
-        printf '%s\n' "$PROJECT_ROOT/.agents/skills/shipflow/SKILL.md"
+        printf '%s\n' "$PROJECT_ROOT/.agents/skills"
       fi
       ;;
     claude-code)
       if [[ "$GLOBAL" == true ]]; then
-        printf '%s\n' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/shipflow/SKILL.md"
+        printf '%s\n' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
       else
-        printf '%s\n' "$PROJECT_ROOT/.claude/skills/shipflow/SKILL.md"
+        printf '%s\n' "$PROJECT_ROOT/.claude/skills"
       fi
       ;;
   esac
 }
 
-verify_shipflow() {
-  local destination
-  destination="$(shipflow_path)"
-
-  [[ -s "$destination" ]] || return 1
-  grep -Eq '^name:[[:space:]]*shipflow[[:space:]]*$' "$destination"
+verify_skill() {
+  local skill="$1"
+  local file="$(skills_root)/$skill/SKILL.md"
+  [[ -s "$file" ]] || return 1
+  grep -Eq "^name:[[:space:]]*${skill}[[:space:]]*$" "$file"
 }
 
-install_shipflow_via_cli() {
-  local source
-  source="${SHIPFLOW_SKILL_URL}?ts=$(date +%s)"
+install_shipflow() {
+  local root destination tmp_file
+  root="$(skills_root)"
+  destination="$root/shipflow"
+  tmp_file="$TMP_DIR/shipflow.SKILL.md"
 
-  echo "Trying official skills CLI (direct URL + --copy)..."
-  if [[ "$GLOBAL" == true ]]; then
-    npx skills@latest add "$source" --copy -a "$AGENT" -g -y
-  else
-    npx skills@latest add "$source" --copy -a "$AGENT" -y
+  echo "Downloading ShipFlow..."
+  curl -fL --retry 3 --retry-delay 1 \
+    -H 'Accept: application/vnd.github.raw+json' \
+    -H 'Cache-Control: no-cache' \
+    "$SHIPFLOW_SKILL_API" \
+    -o "$tmp_file"
+
+  if ! grep -Eq '^name:[[:space:]]*shipflow[[:space:]]*$' "$tmp_file"; then
+    echo "Downloaded ShipFlow SKILL.md is invalid." >&2
+    exit 1
   fi
+
+  rm -rf "$destination"
+  mkdir -p "$destination"
+  cp "$tmp_file" "$destination/SKILL.md"
+  chmod 0644 "$destination/SKILL.md"
+
+  if ! verify_skill shipflow; then
+    echo "Failed to verify ShipFlow after installation." >&2
+    exit 1
+  fi
+
+  echo "Installed: shipflow"
 }
 
-install_shipflow_fallback() {
-  local destination destination_dir
-  destination="$(shipflow_path)"
-  destination_dir="$(dirname "$destination")"
-  TMP_FILE="$(mktemp)"
+download_matt_source() {
+  local archive extract root_candidate
+  archive="$TMP_DIR/matt-skills.tar.gz"
+  extract="$TMP_DIR/matt-skills"
 
-  echo "Using deterministic file fallback..."
+  echo "Downloading Matt Pocock upstream skills..."
   curl -fL --retry 3 --retry-delay 1 \
     -H 'Cache-Control: no-cache' \
-    "${SHIPFLOW_SKILL_URL}?ts=$(date +%s)" \
-    -o "$TMP_FILE"
+    "$MATT_TARBALL_URL?ts=$(date +%s)" \
+    -o "$archive"
 
-  if ! grep -Eq '^name:[[:space:]]*shipflow[[:space:]]*$' "$TMP_FILE"; then
-    echo "Downloaded file is not a valid ShipFlow SKILL.md." >&2
-    exit 1
-  fi
+  mkdir -p "$extract"
+  tar -xzf "$archive" -C "$extract"
 
-  mkdir -p "$destination_dir"
-  cp "$TMP_FILE" "$destination"
-  chmod 0644 "$destination"
-}
-
-ensure_shipflow_installed() {
-  local destination
-  destination="$(shipflow_path)"
-
-  echo "ShipFlow target: $destination"
-
-  if install_shipflow_via_cli; then
-    if verify_shipflow; then
-      echo "Verified ShipFlow after CLI install: $destination"
-      return 0
+  MATT_ROOT=""
+  for root_candidate in "$extract"/*; do
+    if [[ -d "$root_candidate" ]]; then
+      MATT_ROOT="$root_candidate"
+      break
     fi
-    echo "skills CLI returned successfully but ShipFlow file was not found; falling back." >&2
-  else
-    echo "skills CLI ShipFlow install failed; falling back." >&2
+  done
+
+  if [[ -z "$MATT_ROOT" || ! -d "$MATT_ROOT" ]]; then
+    echo "Could not locate extracted mattpocock/skills repository." >&2
+    exit 1
   fi
+}
 
-  install_shipflow_fallback
+find_upstream_skill_file() {
+  local skill="$1"
+  local matches count first
 
-  if ! verify_shipflow; then
-    echo "ShipFlow fallback verification failed." >&2
-    echo "Expected: $destination" >&2
+  matches="$(find "$MATT_ROOT" -type f -name SKILL.md -exec grep -l -E "^name:[[:space:]]*${skill}[[:space:]]*$" {} \; || true)"
+  count="$(printf '%s\n' "$matches" | awk 'NF { n++ } END { print n + 0 }')"
+
+  if [[ "$count" -ne 1 ]]; then
+    echo "Expected exactly one upstream skill named '$skill', found $count." >&2
+    if [[ -n "$matches" ]]; then
+      printf '%s\n' "$matches" >&2
+    fi
     exit 1
   fi
 
-  echo "Verified ShipFlow after fallback: $destination"
+  first="$(printf '%s\n' "$matches" | awk 'NF { print; exit }')"
+  printf '%s\n' "$first"
 }
 
-install_upstream_skills() {
-  echo "Installing Matt Pocock upstream skills..."
-  if [[ "$GLOBAL" == true ]]; then
-    npx skills@latest add mattpocock/skills \
-      --skill setup-matt-pocock-skills \
-      --skill grill-with-docs \
-      --skill grilling \
-      --skill domain-modeling \
-      --skill to-spec \
-      --skill to-tickets \
-      --skill implement \
-      --skill tdd \
-      --skill code-review \
-      -a "$AGENT" -g -y
-  else
-    npx skills@latest add mattpocock/skills \
-      --skill setup-matt-pocock-skills \
-      --skill grill-with-docs \
-      --skill grilling \
-      --skill domain-modeling \
-      --skill to-spec \
-      --skill to-tickets \
-      --skill implement \
-      --skill tdd \
-      --skill code-review \
-      -a "$AGENT" -y
+install_upstream_skill() {
+  local skill="$1"
+  local source_file source_dir destination root
+
+  source_file="$(find_upstream_skill_file "$skill")"
+  source_dir="$(dirname "$source_file")"
+  root="$(skills_root)"
+  destination="$root/$skill"
+
+  rm -rf "$destination"
+  mkdir -p "$root"
+  cp -R "$source_dir" "$destination"
+
+  if ! verify_skill "$skill"; then
+    echo "Failed to verify upstream skill: $skill" >&2
+    exit 1
   fi
+
+  echo "Installed: $skill"
+}
+
+install_all_upstream_skills() {
+  local skill
+  printf '%s\n' "$REQUIRED_UPSTREAM_SKILLS" | while IFS= read -r skill; do
+    [[ -n "$skill" ]] || continue
+    install_upstream_skill "$skill"
+  done
+}
+
+verify_all() {
+  local skill failures
+  failures=0
+
+  if ! verify_skill shipflow; then
+    echo "Missing or invalid: shipflow" >&2
+    failures=1
+  fi
+
+  printf '%s\n' "$REQUIRED_UPSTREAM_SKILLS" | while IFS= read -r skill; do
+    [[ -n "$skill" ]] || continue
+    if ! verify_skill "$skill"; then
+      echo "Missing or invalid: $skill" >&2
+      exit 10
+    fi
+  done
+
+  [[ "$failures" -eq 0 ]]
 }
 
 print_final_state() {
-  local destination skills_root
-  destination="$(shipflow_path)"
-  skills_root="$(dirname "$(dirname "$destination")")"
-
+  local root
+  root="$(skills_root)"
   echo
-  echo "Final skill root: $skills_root"
-  if [[ -d "$skills_root" ]]; then
-    find "$skills_root" -maxdepth 2 -name SKILL.md -print | sort
-  fi
+  echo "Final skill root: $root"
+  find "$root" -maxdepth 2 -name SKILL.md -print | sort
 }
 
-echo "ShipFlow installer ${INSTALLER_VERSION}"
+for command in curl tar find grep awk cp mkdir rm dirname chmod; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "Required command not found: $command" >&2
+    exit 1
+  fi
+done
+
+TMP_DIR="$(mktemp -d)"
+MATT_ROOT=""
+
+printf 'ShipFlow installer %s\n' "$INSTALLER_VERSION"
 echo "Project root: $PROJECT_ROOT"
+echo "Target skill root: $(skills_root)"
 
-echo "Installing ShipFlow orchestrator first..."
-ensure_shipflow_installed
+mkdir -p "$(skills_root)"
 
-install_upstream_skills
-
-# Verify again after upstream installation so later CLI work cannot silently remove it.
-if ! verify_shipflow; then
-  echo "ShipFlow disappeared after upstream installation; restoring it." >&2
-  install_shipflow_fallback
-fi
-
-if ! verify_shipflow; then
-  echo "Final ShipFlow verification failed." >&2
-  echo "Expected: $(shipflow_path)" >&2
-  exit 1
-fi
-
+download_matt_source
+install_all_upstream_skills
+install_shipflow
+verify_all
 print_final_state
 
 echo
-printf 'ShipFlow installed and verified for %s.\n' "$AGENT"
+printf 'Installed and verified ShipFlow + 9 Matt Pocock skills for %s.\n' "$AGENT"
 echo "Run /setup-matt-pocock-skills once per repository, then use: /shipflow <your development goal>"
