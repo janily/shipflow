@@ -6,9 +6,9 @@ disable-model-invocation: true
 
 # ShipFlow
 
-This is a **thin orchestrator** for Matt Pocock's upstream engineering skills.
+ShipFlow is a **thin runtime orchestrator** for Matt Pocock's installed engineering skills.
 
-It MUST NOT recreate, paraphrase, replace, or extend the internal workflow of the upstream skills. The upstream skills are the source of truth.
+It MUST NOT recreate, paraphrase, replace, or extend the internal workflow of the upstream skills. The installed upstream `SKILL.md` files are the source of truth.
 
 ## Required upstream skills
 
@@ -21,25 +21,37 @@ The following skills from `mattpocock/skills` must be installed and available:
 - `implement`
 - `code-review`
 
-Their transitive dependencies must also be installed because the upstream skills invoke them:
+Their transitive dependencies must also be installed because upstream skills may reference them:
 
 - `grilling`
 - `domain-modeling`
 - `tdd`
 
-If any required skill is unavailable, stop and tell the user to install the upstream dependencies. Do not emulate the missing skill.
+If any required skill cannot be resolved, STOP and tell the user which upstream skill is missing. Never emulate a missing skill from memory.
+
+## Runtime skill-resolution protocol
+
+For every upstream skill ShipFlow needs, resolve it by **exact skill name** using this protocol:
+
+1. **Prefer native runtime skill loading/invocation when available.** If the runtime exposes a supported way to load or invoke an installed skill by name, use it.
+2. **Otherwise resolve the installed `SKILL.md` file.** Use the runtime's installed-skill registry or filesystem roots exposed to the agent. Common project roots include `.agents/skills/<skill-name>/SKILL.md` and agent-specific skill roots; global installs may live in the corresponding user-level skill directory.
+3. **Read the complete upstream `SKILL.md` before executing that stage.** Execute its current instructions faithfully. Do not rely on a remembered or summarized version.
+4. **Resolve nested skill references the same way.** If an upstream skill instructs the agent to use another skill such as `grilling`, `domain-modeling`, `tdd`, or `code-review`, resolve and read that installed skill rather than reproducing its behavior locally.
+5. **Fail closed.** If neither native skill loading nor the installed `SKILL.md` can be accessed, STOP. Report the capability or installation gap and do not substitute a custom workflow.
+
+The absence of a dedicated `Skill` tool is **not** permission to skip a stage or imitate it. Reading and executing the installed upstream `SKILL.md` is the required fallback.
 
 ## Repository setup
 
-Before starting the build chain, check whether Matt's repo configuration exists (for example `docs/agents/issue-tracker.md` and `docs/agents/domain.md`).
+Before starting the build chain, check whether Matt's repository configuration exists, including the issue-tracker configuration expected by the upstream skills.
 
-If it is missing, invoke the upstream `setup-matt-pocock-skills` skill first.
+If setup is missing, resolve and execute the installed `setup-matt-pocock-skills` skill using the protocol above.
 
-For this orchestrator's default workflow, select **Local Markdown** as the issue tracker unless the repository is already configured differently by the user. Do not invent another storage layout. The upstream setup skill owns the tracker conventions.
+For ShipFlow's default local workflow, choose **Local Markdown** when the user has not already configured another tracker. Do not invent a storage layout; the upstream setup and tracker instructions own those conventions.
 
-## Orchestration
+## Orchestration state machine
 
-The only workflow this skill coordinates is:
+Once ShipFlow is explicitly triggered, run the full upstream chain in order:
 
 ```text
 grill-with-docs
@@ -53,60 +65,78 @@ implement
 code-review
 ```
 
-### 1. Invoke `grill-with-docs`
+Do not collapse the chain into a direct code fix merely because the requested change appears small or narrow. ShipFlow means the workflow is being requested.
 
-Call the Skill tool for `grill-with-docs`, passing the user's development goal and the current repository context.
+### Stage 1 — `grill-with-docs`
 
-Let `grill-with-docs` run exactly as defined upstream, including any interaction it requires. Do not shorten its interview, answer its questions on the user's behalf, or substitute a custom discovery phase.
+Resolve and execute the installed `grill-with-docs` skill with the user's development goal and current repository context.
 
-When it completes, continue automatically to the next stage. The user should not need to type `/to-spec` manually.
+Let the upstream skill run exactly as currently installed, including any interaction, repository exploration, and nested skills it requires. Do not shorten its interview, answer product decisions on the user's behalf, or substitute a custom discovery phase.
 
-### 2. Invoke `to-spec`
+When it completes, advance automatically to `to-spec`.
 
-Call the Skill tool for `to-spec` using the context produced by the completed grill.
+### Stage 2 — `to-spec`
 
-Let the upstream skill decide how to explore the repository, define test seams, structure the spec, and publish it to the configured issue tracker.
+Resolve and execute the installed `to-spec` skill using the context produced by the completed grill.
 
-Do not create a second spec format or alternate spec directory.
+The upstream skill owns repository exploration, test-seam decisions, spec structure, user confirmations, and publishing to the configured tracker. Do not create a second spec format or alternate spec directory.
 
-When it completes, continue automatically to `to-tickets`.
+When it completes, advance automatically to `to-tickets`.
 
-### 3. Invoke `to-tickets`
+### Stage 3 — `to-tickets`
 
-Call the Skill tool for `to-tickets`, pointing it at the spec created by `to-spec` when a reference is available.
+Resolve and execute the installed `to-tickets` skill, passing the created spec reference when available.
 
-Let the upstream skill own ticket slicing, blocking edges, user approval of the breakdown, tracker publication, and Local Markdown file layout.
+The upstream skill owns ticket slicing, blocking edges, user approval, tracker publication, and Local Markdown file layout. Do not combine the tickets into a ShipFlow-specific schema.
 
-Do not combine tickets into a custom `tickets.md` file and do not invent a second ticket schema.
+When ticket publication completes, advance to implementation.
 
-When ticket creation is complete, continue to implementation.
+### Stage 4 — `implement`
 
-### 4. Invoke `implement`
+Work the ticket frontier defined by the upstream tickets.
 
-Work the ticket frontier using Matt's existing ticket dependencies.
+For each implementation unit that is ready, resolve and execute the installed `implement` skill with the relevant spec/ticket reference.
 
-For each ready implementation unit, invoke the upstream `implement` skill with the relevant spec/ticket reference. Preserve the fresh-context boundary expected by the upstream workflow when the runtime supports sub-agents or isolated contexts.
+Do not reproduce TDD, verification, commit, or review rules in ShipFlow. If `implement` references `tdd` or `code-review`, resolve those installed skills using the same runtime skill-resolution protocol.
 
-Do not reproduce TDD, verification, commit, or review rules here. `implement` owns those rules upstream and itself invokes `tdd` and `code-review` as required.
+If an upstream instruction requires a runtime capability such as isolated/parallel sub-agents and that capability truly is unavailable, surface the capability gap instead of silently replacing the required behavior with a self-review or improvised approximation.
 
-Continue until the requested ticket set is complete or an upstream skill reports a blocker that requires the user.
+Continue until the requested ticket set is complete or an upstream skill reports a blocker requiring the user.
 
-### 5. `code-review`
+### Stage 5 — `code-review`
 
-`implement` is expected to invoke the upstream `code-review` skill as part of its own completion flow. Treat that upstream review as the code-review stage of this orchestrated chain.
+The installed `implement` skill may already execute the installed `code-review` skill as part of its completion path. If that upstream review ran successfully, count it as this stage and do not create a second custom review.
 
-Do not add a second custom review rubric, severity model, or repair loop. Do not merge the Standards and Spec axes defined by Matt's `code-review` skill.
+If implementation completes without the required upstream review, resolve and execute the installed `code-review` skill directly and let it request any fixed point or spec reference it requires.
 
-If `implement` completes without running `code-review` because the runtime could not invoke it, explicitly invoke the upstream `code-review` skill using the fixed point required by that skill. Do not implement review logic locally.
+Never add a ShipFlow-specific review rubric, severity model, repair loop, or merged review axis.
 
-## Interaction rule
+## Interaction and resume rule
 
-"One trigger" means the user does not manually invoke the five stages. It does **not** mean skipping user decisions requested by the upstream skills.
+"One trigger" means the user does not manually invoke each stage. It does **not** mean bypassing user decisions required by upstream skills.
 
-If `grill-with-docs`, `to-spec`, `to-tickets`, or another upstream skill asks the user to confirm a decision, surface that question unchanged in intent, wait for the answer, then resume the chain automatically from the same stage.
+If an upstream skill asks the user a question or requests approval:
+
+1. preserve the question's intent,
+2. wait for the user's answer,
+3. resume the same upstream stage,
+4. then continue automatically to the next stage when that skill completes.
+
+Do not restart the chain from the beginning unless the upstream instructions require it.
+
+## Prohibited fallbacks
+
+ShipFlow MUST NOT say or behave like any of the following:
+
+- "There is no Skill tool, so I'll follow the same checks myself."
+- "This is a narrow fix, so I'll skip spec/tickets and implement directly."
+- "I know what `to-spec` does, so I'll generate an equivalent spec."
+- "Sub-agents are unavailable, so I'll perform the independent review in the same context and call it equivalent."
+
+When a runtime limitation appears, use the installed `SKILL.md` fallback where possible; otherwise fail closed and explain the exact missing capability.
 
 ## Source-of-truth rule
 
-If this orchestrator conflicts with any installed upstream skill, **the upstream Matt Pocock skill wins**.
+If ShipFlow conflicts with any installed upstream Matt Pocock skill, **the installed upstream skill wins**.
 
-Never copy upstream skill bodies into this repository. Keeping them as external dependencies ensures `npx skills update` can pick up Matt's validated improvements without this orchestrator drifting into a fork.
+Never copy Matt's upstream skill bodies into this repository. ShipFlow owns only stage ordering, resolution, and resume behavior. Matt's installed skills own the engineering method.
