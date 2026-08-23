@@ -32,6 +32,7 @@ install_skills() {
   fi
 }
 
+echo "ShipFlow installer"
 echo "Installing Matt Pocock upstream skills..."
 install_skills mattpocock/skills \
   --skill setup-matt-pocock-skills \
