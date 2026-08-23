@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTALLER_VERSION="1.1.0"
+INSTALLER_VERSION="1.2.0"
 AGENT="claude-code"
 GLOBAL=false
+PROJECT_ROOT="$(pwd -P)"
 SHIPFLOW_SKILL_URL="https://raw.githubusercontent.com/janily/shipflow/main/SKILL.md"
 TMP_FILE=""
 
@@ -40,7 +41,103 @@ case "$AGENT" in
     ;;
 esac
 
+shipflow_path() {
+  case "$AGENT" in
+    codex)
+      if [[ "$GLOBAL" == true ]]; then
+        printf '%s\n' "${CODEX_HOME:-$HOME/.codex}/skills/shipflow/SKILL.md"
+      else
+        printf '%s\n' "$PROJECT_ROOT/.agents/skills/shipflow/SKILL.md"
+      fi
+      ;;
+    cursor)
+      if [[ "$GLOBAL" == true ]]; then
+        printf '%s\n' "$HOME/.cursor/skills/shipflow/SKILL.md"
+      else
+        printf '%s\n' "$PROJECT_ROOT/.agents/skills/shipflow/SKILL.md"
+      fi
+      ;;
+    claude-code)
+      if [[ "$GLOBAL" == true ]]; then
+        printf '%s\n' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/shipflow/SKILL.md"
+      else
+        printf '%s\n' "$PROJECT_ROOT/.claude/skills/shipflow/SKILL.md"
+      fi
+      ;;
+  esac
+}
+
+verify_shipflow() {
+  local destination
+  destination="$(shipflow_path)"
+
+  [[ -s "$destination" ]] || return 1
+  grep -Eq '^name:[[:space:]]*shipflow[[:space:]]*$' "$destination"
+}
+
+install_shipflow_via_cli() {
+  local source
+  source="${SHIPFLOW_SKILL_URL}?ts=$(date +%s)"
+
+  echo "Trying official skills CLI (direct URL + --copy)..."
+  if [[ "$GLOBAL" == true ]]; then
+    npx skills@latest add "$source" --copy -a "$AGENT" -g -y
+  else
+    npx skills@latest add "$source" --copy -a "$AGENT" -y
+  fi
+}
+
+install_shipflow_fallback() {
+  local destination destination_dir
+  destination="$(shipflow_path)"
+  destination_dir="$(dirname "$destination")"
+  TMP_FILE="$(mktemp)"
+
+  echo "Using deterministic file fallback..."
+  curl -fL --retry 3 --retry-delay 1 \
+    -H 'Cache-Control: no-cache' \
+    "${SHIPFLOW_SKILL_URL}?ts=$(date +%s)" \
+    -o "$TMP_FILE"
+
+  if ! grep -Eq '^name:[[:space:]]*shipflow[[:space:]]*$' "$TMP_FILE"; then
+    echo "Downloaded file is not a valid ShipFlow SKILL.md." >&2
+    exit 1
+  fi
+
+  mkdir -p "$destination_dir"
+  cp "$TMP_FILE" "$destination"
+  chmod 0644 "$destination"
+}
+
+ensure_shipflow_installed() {
+  local destination
+  destination="$(shipflow_path)"
+
+  echo "ShipFlow target: $destination"
+
+  if install_shipflow_via_cli; then
+    if verify_shipflow; then
+      echo "Verified ShipFlow after CLI install: $destination"
+      return 0
+    fi
+    echo "skills CLI returned successfully but ShipFlow file was not found; falling back." >&2
+  else
+    echo "skills CLI ShipFlow install failed; falling back." >&2
+  fi
+
+  install_shipflow_fallback
+
+  if ! verify_shipflow; then
+    echo "ShipFlow fallback verification failed." >&2
+    echo "Expected: $destination" >&2
+    exit 1
+  fi
+
+  echo "Verified ShipFlow after fallback: $destination"
+}
+
 install_upstream_skills() {
+  echo "Installing Matt Pocock upstream skills..."
   if [[ "$GLOBAL" == true ]]; then
     npx skills@latest add mattpocock/skills \
       --skill setup-matt-pocock-skills \
@@ -68,84 +165,39 @@ install_upstream_skills() {
   fi
 }
 
-shipflow_path() {
-  case "$AGENT" in
-    codex)
-      if [[ "$GLOBAL" == true ]]; then
-        printf '%s\n' "${CODEX_HOME:-$HOME/.codex}/skills/shipflow/SKILL.md"
-      else
-        printf '%s\n' ".agents/skills/shipflow/SKILL.md"
-      fi
-      ;;
-    cursor)
-      if [[ "$GLOBAL" == true ]]; then
-        printf '%s\n' "$HOME/.cursor/skills/shipflow/SKILL.md"
-      else
-        printf '%s\n' ".agents/skills/shipflow/SKILL.md"
-      fi
-      ;;
-    claude-code)
-      if [[ "$GLOBAL" == true ]]; then
-        printf '%s\n' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/shipflow/SKILL.md"
-      else
-        printf '%s\n' ".claude/skills/shipflow/SKILL.md"
-      fi
-      ;;
-  esac
-}
-
-install_shipflow() {
-  local destination destination_dir
+print_final_state() {
+  local destination skills_root
   destination="$(shipflow_path)"
-  destination_dir="$(dirname "$destination")"
-  TMP_FILE="$(mktemp)"
+  skills_root="$(dirname "$(dirname "$destination")")"
 
-  echo "Downloading ShipFlow SKILL.md..."
-  curl -fL --retry 3 --retry-delay 1 \
-    -H 'Cache-Control: no-cache' \
-    "${SHIPFLOW_SKILL_URL}?ts=$(date +%s)" \
-    -o "$TMP_FILE"
-
-  if ! grep -Eq '^name:[[:space:]]*shipflow[[:space:]]*$' "$TMP_FILE"; then
-    echo "Downloaded file is not a valid ShipFlow SKILL.md." >&2
-    exit 1
+  echo
+  echo "Final skill root: $skills_root"
+  if [[ -d "$skills_root" ]]; then
+    find "$skills_root" -maxdepth 2 -name SKILL.md -print | sort
   fi
-
-  mkdir -p "$destination_dir"
-  cp "$TMP_FILE" "$destination"
-  chmod 0644 "$destination"
-
-  echo "Installed ShipFlow: $destination"
-}
-
-verify_shipflow() {
-  local destination
-  destination="$(shipflow_path)"
-
-  if [[ ! -s "$destination" ]]; then
-    echo "ShipFlow installation verification failed: file missing." >&2
-    echo "Expected: $destination" >&2
-    exit 1
-  fi
-
-  if ! grep -Eq '^name:[[:space:]]*shipflow[[:space:]]*$' "$destination"; then
-    echo "ShipFlow installation verification failed: invalid SKILL.md." >&2
-    echo "File: $destination" >&2
-    exit 1
-  fi
-
-  echo "Verified ShipFlow: $destination"
 }
 
 echo "ShipFlow installer ${INSTALLER_VERSION}"
-echo "Installing Matt Pocock upstream skills..."
+echo "Project root: $PROJECT_ROOT"
+
+echo "Installing ShipFlow orchestrator first..."
+ensure_shipflow_installed
+
 install_upstream_skills
 
-echo "Installing ShipFlow orchestrator..."
-install_shipflow
+# Verify again after upstream installation so later CLI work cannot silently remove it.
+if ! verify_shipflow; then
+  echo "ShipFlow disappeared after upstream installation; restoring it." >&2
+  install_shipflow_fallback
+fi
 
-echo "Verifying ShipFlow installation..."
-verify_shipflow
+if ! verify_shipflow; then
+  echo "Final ShipFlow verification failed." >&2
+  echo "Expected: $(shipflow_path)" >&2
+  exit 1
+fi
+
+print_final_state
 
 echo
 printf 'ShipFlow installed and verified for %s.\n' "$AGENT"
