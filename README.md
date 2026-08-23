@@ -10,18 +10,16 @@ ShipFlow does **not** reimplement those skills. Matt Pocock's installed upstream
 
 ## One-click install
 
-The install command includes a cache-busting query so proxies/CDNs do not serve an older installer.
+### Codex
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/janily/shipflow/main/install.sh?ts=$(date +%s)" | bash -s -- --agent codex
+```
 
 ### Claude Code
 
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/janily/shipflow/main/install.sh?ts=$(date +%s)" | bash
-```
-
-### Codex
-
-```bash
-curl -fsSL "https://raw.githubusercontent.com/janily/shipflow/main/install.sh?ts=$(date +%s)" | bash -s -- --agent codex
 ```
 
 ### Cursor
@@ -33,28 +31,40 @@ curl -fsSL "https://raw.githubusercontent.com/janily/shipflow/main/install.sh?ts
 ### Global install
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/janily/shipflow/main/install.sh?ts=$(date +%s)" | bash -s -- --global
+curl -fsSL "https://raw.githubusercontent.com/janily/shipflow/main/install.sh?ts=$(date +%s)" | bash -s -- --agent codex --global
 ```
 
-The installer:
-
-1. installs Matt Pocock's required upstream skills from `mattpocock/skills`;
-2. installs ShipFlow from the direct `SKILL.md` download URL rather than relying on repository discovery;
-3. verifies that the actual ShipFlow file exists (for Codex project installs: `.agents/skills/shipflow/SKILL.md`) before reporting success.
-
-A current installer run starts with something like:
+A current run starts with:
 
 ```text
-ShipFlow installer 1.0.1
+ShipFlow installer 1.1.0
 ```
 
-If you already have Matt's upstream skills and only want ShipFlow, install the single skill directly:
+## How installation works
+
+The installer deliberately uses two different mechanisms:
+
+1. **Matt Pocock's multi-skill repository** is installed with the official `skills` CLI.
+2. **ShipFlow itself is a single `SKILL.md` file**, so the installer downloads it directly to the target agent's standard skill directory.
+3. The installer validates the downloaded frontmatter and verifies the final file before reporting success.
+
+For a Codex project install the final file must be:
+
+```text
+.agents/skills/shipflow/SKILL.md
+```
+
+This is intentional. The `skills` CLI ultimately installs Codex project skills under `.agents/skills/<skill-name>`. ShipFlow avoids an unnecessary repository-discovery layer and writes its single file directly to that standard location.
+
+If you already have Matt's upstream skills and only need ShipFlow for Codex, you can install it directly:
 
 ```bash
-npx skills@latest add "https://raw.githubusercontent.com/janily/shipflow/main/SKILL.md?ts=$(date +%s)" -a codex -y
+mkdir -p .agents/skills/shipflow && \
+  curl -fL "https://raw.githubusercontent.com/janily/shipflow/main/SKILL.md?ts=$(date +%s)" \
+  -o .agents/skills/shipflow/SKILL.md
 ```
 
-The `skills` CLI officially supports direct `SKILL.md` download URLs, so this avoids an unnecessary repository-discovery step.
+To update ShipFlow, simply rerun the installer. Matt's upstream skills continue to be managed by the `skills` CLI.
 
 ## What gets installed
 
@@ -78,19 +88,19 @@ The upstream skill bodies are not copied, forked, or modified here.
 
 ## How ShipFlow executes upstream skills
 
-Different coding agents expose Skills differently. Some runtimes may provide a native way to load/invoke another installed skill; others, including some Codex environments, may not expose a dedicated `Skill` tool.
+Different coding agents expose Skills differently. Some runtimes provide a native way to load or invoke another installed skill; others may not expose a dedicated Skill tool.
 
 ShipFlow handles both cases:
 
 ```text
-1. Prefer native skill loading/invocation when the runtime supports it.
+1. Prefer native skill loading/invocation when available.
 2. Otherwise resolve the installed upstream SKILL.md file.
 3. Read the complete current upstream instructions.
 4. Execute those instructions faithfully.
 5. Resolve nested skill references the same way.
 ```
 
-For example, a Codex project installation exposes the workflow skills under paths such as:
+For Codex project installs the workflow is available under paths such as:
 
 ```text
 .agents/skills/grill-with-docs/SKILL.md
@@ -101,7 +111,7 @@ For example, a Codex project installation exposes the workflow skills under path
 .agents/skills/shipflow/SKILL.md
 ```
 
-**Important:** if a runtime has no dedicated Skill tool, ShipFlow must not imitate Matt's workflow from memory. It must read the installed upstream `SKILL.md`. If an upstream skill cannot be resolved, ShipFlow fails closed and reports the missing dependency/capability.
+**Important:** if a runtime has no dedicated Skill tool, ShipFlow must not imitate Matt's workflow from memory. It must read the installed upstream `SKILL.md`. If an upstream skill cannot be resolved, ShipFlow fails closed and reports the missing dependency or capability.
 
 ## Repository setup
 
@@ -132,8 +142,6 @@ ShipFlow coordinates:
 ```
 
 "One trigger" means you don't manually invoke the next stage. It does **not** bypass confirmation points required by Matt's upstream skills. If an upstream skill asks a question, answer it and ShipFlow resumes that stage before continuing automatically.
-
-ShipFlow also does **not** downgrade a full ShipFlow request into a direct "narrow fix" just because the change looks small. Triggering ShipFlow means the upstream workflow is requested.
 
 ## Design principle
 
