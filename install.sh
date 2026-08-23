@@ -2,7 +2,7 @@
 set -euo pipefail
 
 AGENT="claude-code"
-SCOPE_ARGS=()
+GLOBAL=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -11,7 +11,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -g|--global)
-      SCOPE_ARGS+=("-g")
+      GLOBAL=true
       shift
       ;;
     *)
@@ -21,8 +21,19 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+install_skills() {
+  local source="$1"
+  shift
+
+  if [[ "$GLOBAL" == true ]]; then
+    npx skills@latest add "$source" "$@" -a "$AGENT" -g -y
+  else
+    npx skills@latest add "$source" "$@" -a "$AGENT" -y
+  fi
+}
+
 echo "Installing Matt Pocock upstream skills..."
-npx skills@latest add mattpocock/skills \
+install_skills mattpocock/skills \
   --skill setup-matt-pocock-skills \
   --skill grill-with-docs \
   --skill grilling \
@@ -31,13 +42,11 @@ npx skills@latest add mattpocock/skills \
   --skill to-tickets \
   --skill implement \
   --skill tdd \
-  --skill code-review \
-  -a "$AGENT" "${SCOPE_ARGS[@]}" -y
+  --skill code-review
 
 echo "Installing ShipFlow orchestrator..."
-npx skills@latest add janily/shipflow \
-  --skill shipflow \
-  -a "$AGENT" "${SCOPE_ARGS[@]}" -y
+install_skills janily/shipflow \
+  --skill shipflow
 
 echo
 printf 'ShipFlow installed for %s.\n' "$AGENT"
