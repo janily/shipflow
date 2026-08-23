@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTALLER_VERSION="1.0.1"
+INSTALLER_VERSION="1.1.0"
 AGENT="claude-code"
 GLOBAL=false
+SHIPFLOW_SKILL_URL="https://raw.githubusercontent.com/janily/shipflow/main/SKILL.md"
+TMP_FILE=""
+
+cleanup() {
+  if [[ -n "${TMP_FILE:-}" && -f "$TMP_FILE" ]]; then
+    rm -f "$TMP_FILE"
+  fi
+}
+trap cleanup EXIT
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -22,18 +31,44 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-install_skills() {
-  local source="$1"
-  shift
+case "$AGENT" in
+  claude-code|codex|cursor) ;;
+  *)
+    echo "Unsupported agent: $AGENT" >&2
+    echo "Supported agents: claude-code, codex, cursor" >&2
+    exit 2
+    ;;
+esac
 
+install_upstream_skills() {
   if [[ "$GLOBAL" == true ]]; then
-    npx skills@latest add "$source" "$@" -a "$AGENT" -g -y
+    npx skills@latest add mattpocock/skills \
+      --skill setup-matt-pocock-skills \
+      --skill grill-with-docs \
+      --skill grilling \
+      --skill domain-modeling \
+      --skill to-spec \
+      --skill to-tickets \
+      --skill implement \
+      --skill tdd \
+      --skill code-review \
+      -a "$AGENT" -g -y
   else
-    npx skills@latest add "$source" "$@" -a "$AGENT" -y
+    npx skills@latest add mattpocock/skills \
+      --skill setup-matt-pocock-skills \
+      --skill grill-with-docs \
+      --skill grilling \
+      --skill domain-modeling \
+      --skill to-spec \
+      --skill to-tickets \
+      --skill implement \
+      --skill tdd \
+      --skill code-review \
+      -a "$AGENT" -y
   fi
 }
 
-expected_shipflow_path() {
+shipflow_path() {
   case "$AGENT" in
     codex)
       if [[ "$GLOBAL" == true ]]; then
@@ -56,64 +91,62 @@ expected_shipflow_path() {
         printf '%s\n' ".claude/skills/shipflow/SKILL.md"
       fi
       ;;
-    *)
-      printf '%s\n' ""
-      ;;
   esac
 }
 
+install_shipflow() {
+  local destination destination_dir
+  destination="$(shipflow_path)"
+  destination_dir="$(dirname "$destination")"
+  TMP_FILE="$(mktemp)"
+
+  echo "Downloading ShipFlow SKILL.md..."
+  curl -fL --retry 3 --retry-delay 1 \
+    -H 'Cache-Control: no-cache' \
+    "${SHIPFLOW_SKILL_URL}?ts=$(date +%s)" \
+    -o "$TMP_FILE"
+
+  if ! grep -Eq '^name:[[:space:]]*shipflow[[:space:]]*$' "$TMP_FILE"; then
+    echo "Downloaded file is not a valid ShipFlow SKILL.md." >&2
+    exit 1
+  fi
+
+  mkdir -p "$destination_dir"
+  cp "$TMP_FILE" "$destination"
+  chmod 0644 "$destination"
+
+  echo "Installed ShipFlow: $destination"
+}
+
 verify_shipflow() {
-  local expected_path output
-  expected_path="$(expected_shipflow_path)"
+  local destination
+  destination="$(shipflow_path)"
 
-  if [[ -n "$expected_path" && -f "$expected_path" ]]; then
-    echo "Verified: $expected_path"
-    return 0
+  if [[ ! -s "$destination" ]]; then
+    echo "ShipFlow installation verification failed: file missing." >&2
+    echo "Expected: $destination" >&2
+    exit 1
   fi
 
-  if [[ "$GLOBAL" == true ]]; then
-    output="$(npx skills@latest list -g -a "$AGENT" 2>&1 || true)"
-  else
-    output="$(npx skills@latest list -a "$AGENT" 2>&1 || true)"
+  if ! grep -Eq '^name:[[:space:]]*shipflow[[:space:]]*$' "$destination"; then
+    echo "ShipFlow installation verification failed: invalid SKILL.md." >&2
+    echo "File: $destination" >&2
+    exit 1
   fi
 
-  if printf '%s\n' "$output" | grep -qi 'shipflow'; then
-    echo "Verified: shipflow is present in the skills CLI list."
-    return 0
-  fi
-
-  echo "ShipFlow installation verification failed." >&2
-  if [[ -n "$expected_path" ]]; then
-    echo "Expected file: $expected_path" >&2
-  fi
-  echo "Installed skills reported by the CLI:" >&2
-  printf '%s\n' "$output" >&2
-  exit 1
+  echo "Verified ShipFlow: $destination"
 }
 
 echo "ShipFlow installer ${INSTALLER_VERSION}"
 echo "Installing Matt Pocock upstream skills..."
-install_skills mattpocock/skills \
-  --skill setup-matt-pocock-skills \
-  --skill grill-with-docs \
-  --skill grilling \
-  --skill domain-modeling \
-  --skill to-spec \
-  --skill to-tickets \
-  --skill implement \
-  --skill tdd \
-  --skill code-review
+install_upstream_skills
 
 echo "Installing ShipFlow orchestrator..."
-# ShipFlow is a single skill. Install the SKILL.md directly instead of relying
-# on repository discovery. The timestamp also avoids stale CDN/proxy responses.
-SHIPFLOW_SKILL_URL="https://raw.githubusercontent.com/janily/shipflow/main/SKILL.md?ts=$(date +%s)"
-install_skills "$SHIPFLOW_SKILL_URL"
+install_shipflow
 
 echo "Verifying ShipFlow installation..."
 verify_shipflow
 
 echo
 printf 'ShipFlow installed and verified for %s.\n' "$AGENT"
-echo "In each repository, run /setup-matt-pocock-skills once before first use and choose Local Markdown when desired."
-echo "Then run: /shipflow <your development goal>"
+echo "Run /setup-matt-pocock-skills once per repository, then use: /shipflow <your development goal>"
