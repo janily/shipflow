@@ -4,6 +4,11 @@ import path from "node:path";
 import { CodexAgent } from "./codex-agent.js";
 import { runShipFlow, resumeShipFlow } from "./runner.js";
 
+const REASONING_LEVELS = new Set(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
+const SANDBOX_MODES = new Set(["read-only", "workspace-write", "danger-full-access"]);
+const APPROVAL_POLICIES = new Set(["never", "on-request", "on-failure", "untrusted"]);
+const WEB_SEARCH_MODES = new Set(["disabled", "cached", "live"]);
+
 export async function main(argv = process.argv.slice(2), overrides = {}) {
   let parsed;
   try {
@@ -24,7 +29,13 @@ export async function main(argv = process.argv.slice(2), overrides = {}) {
     overrides.agent ||
     new CodexAgent({
       model: parsed.model,
+      reasoning: parsed.reasoning,
+      sandbox: parsed.sandbox,
+      approval: parsed.approval,
       network: parsed.network,
+      webSearch: parsed.webSearch,
+      additionalDirectories: parsed.additionalDirectories,
+      codexConfigOverrides: parsed.codexConfigOverrides,
       onEvent: (event) => printProgress(event, overrides.stdout || stdout),
     });
 
@@ -80,23 +91,62 @@ export function parseArgs(argv) {
     agent: "codex",
     cwd: process.cwd(),
     model: undefined,
-    network: false,
+    reasoning: undefined,
+    sandbox: undefined,
+    approval: undefined,
+    network: undefined,
+    webSearch: undefined,
+    additionalDirectories: [],
+    codexConfigOverrides: [],
+    safe: false,
     allowDirty: false,
     allowMain: false,
   };
 
   for (let i = 1; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--agent" || arg === "--cwd" || arg === "--model") {
+
+    if (
+      arg === "--agent" ||
+      arg === "--cwd" ||
+      arg === "--model" ||
+      arg === "--reasoning" ||
+      arg === "--sandbox" ||
+      arg === "--approval" ||
+      arg === "--web-search" ||
+      arg === "--add-dir" ||
+      arg === "--codex-config"
+    ) {
       const value = argv[++i];
       if (!value) throw new Error(`${arg} requires a value`);
+
       if (arg === "--agent") flags.agent = value;
       if (arg === "--cwd") flags.cwd = path.resolve(value);
       if (arg === "--model") flags.model = value;
+      if (arg === "--reasoning") flags.reasoning = requireEnum(arg, value, REASONING_LEVELS);
+      if (arg === "--sandbox") flags.sandbox = requireEnum(arg, value, SANDBOX_MODES);
+      if (arg === "--approval") flags.approval = requireEnum(arg, value, APPROVAL_POLICIES);
+      if (arg === "--web-search") flags.webSearch = requireEnum(arg, value, WEB_SEARCH_MODES);
+      if (arg === "--add-dir") flags.additionalDirectories.push(path.resolve(value));
+      if (arg === "--codex-config") {
+        if (!value.includes("=")) {
+          throw new Error("--codex-config requires a raw Codex key=value override");
+        }
+        flags.codexConfigOverrides.push(value);
+      }
       continue;
     }
+
     if (arg === "--network") {
       flags.network = true;
+      continue;
+    }
+    if (arg === "--no-network") {
+      flags.network = false;
+      continue;
+    }
+    if (arg === "--safe") {
+      flags.safe = true;
       continue;
     }
     if (arg === "--allow-dirty") {
@@ -111,6 +161,12 @@ export function parseArgs(argv) {
       throw new Error(`Unknown option: ${arg}`);
     }
     values.push(arg);
+  }
+
+  if (flags.safe) {
+    flags.sandbox ??= "workspace-write";
+    flags.approval ??= "never";
+    flags.network ??= false;
   }
 
   if (command === "run") {
@@ -128,6 +184,13 @@ export function parseArgs(argv) {
   }
 
   throw new Error(`Unknown command: ${command}`);
+}
+
+function requireEnum(flag, value, allowed) {
+  if (!allowed.has(value)) {
+    throw new Error(`Invalid ${flag} value '${value}'. Expected one of: ${[...allowed].join(", ")}`);
+  }
+  return value;
 }
 
 function createIo(rl, out) {
@@ -156,14 +219,32 @@ function helpText() {
   return `ShipFlow Codex Runner MVP
 
 Usage:
-  shipflow run "<development goal>" [--agent codex] [--cwd <path>] [--model <model>] [--network] [--allow-dirty] [--allow-main]
-  shipflow resume <run-id> [--cwd <path>] [--model <model>] [--network] [--allow-main]
+  shipflow run "<development goal>" [options]
+  shipflow resume <run-id> [options]
 
-Safety defaults:
-  - feature branch required (main/master rejected unless --allow-main)
-  - unrelated dirty working-tree changes rejected unless --allow-dirty
-  - Codex runs with workspace-write sandbox and approval policy never
-  - network is disabled unless --network is explicitly passed
+ShipFlow safety:
+  --allow-main                 allow running on main/master
+  --allow-dirty                allow unrelated dirty working-tree changes
 
-The runner uses fresh Codex threads per implementation ticket.`;
+Codex behavior:
+  By default ShipFlow inherits the user's Codex configuration and environment.
+  ShipFlow only controls thread/session lifecycle, working directory, stage prompts,
+  and the structured control output required for orchestration.
+
+Optional Codex overrides:
+  --model <model>
+  --reasoning <minimal|low|medium|high|xhigh|max|ultra>
+  --sandbox <read-only|workspace-write|danger-full-access>
+  --approval <never|on-request|on-failure|untrusted>
+  --network | --no-network
+  --web-search <disabled|cached|live>
+  --add-dir <path>             repeatable
+  --codex-config <key=value>   raw Codex config override; repeatable
+  --safe                       workspace-write + approval never + network off
+
+Other:
+  --agent codex
+  --cwd <path>
+
+The runner uses one planning thread and a fresh Codex thread per implementation ticket.`;
 }
