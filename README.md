@@ -133,13 +133,45 @@ Resume a persisted human checkpoint or blocker with:
 shipflow resume <run-id>
 ```
 
-Safety defaults:
+### Codex-native configuration by default
+
+ShipFlow Runner is designed to feel like **Codex running your workflow**, not a replacement coding agent.
+
+By default the Runner does not choose a model, reasoning effort, sandbox mode, approval policy, network policy, or web-search mode. It creates the Codex SDK client without config overrides and only supplies the thread working directory plus ShipFlow's structured control output. The underlying Codex CLI therefore continues to use the user's normal Codex environment and configuration.
+
+That means settings normally owned by Codex remain owned by Codex, including configured model/reasoning defaults and configured MCP servers, subject to the capabilities available through Codex exec / the TypeScript SDK.
+
+ShipFlow itself still owns workflow safety:
 
 - refuses `main`/`master` unless `--allow-main` is explicit,
 - refuses unrelated dirty changes unless `--allow-dirty` is explicit,
-- uses Codex `workspace-write` with approval policy `never`,
-- disables network access unless `--network` is explicit,
-- fails if required skills/spec/tickets are missing or an `implement` stage returns without the upstream-required commit.
+- fails if required skills/spec/tickets are missing,
+- fails if an `implement` stage returns without the upstream-required commit,
+- keeps planning and implementation contexts separate.
+
+### Optional Codex overrides
+
+Use overrides only when a particular ShipFlow run should differ from your normal Codex configuration:
+
+```bash
+shipflow run "Build feature" --model <model> --reasoning high
+shipflow run "Build feature" --sandbox workspace-write --approval never
+shipflow run "Build feature" --network --web-search live
+shipflow run "Build feature" --add-dir ../shared
+shipflow run "Build feature" --codex-config 'some.codex.key=value'
+```
+
+`--add-dir` and `--codex-config` are repeatable. `--network` and `--no-network` explicitly override the inherited network setting.
+
+For the previous conservative MVP behavior, use:
+
+```bash
+shipflow run "Build feature" --safe
+```
+
+`--safe` applies `workspace-write`, approval policy `never`, and network off unless an explicit flag overrides one of those values.
+
+One current SDK boundary matters: the TypeScript SDK's exec event stream does not expose an interactive approval request/response event. If an inherited approval policy requires a human approval that cannot be satisfied through the SDK run, ShipFlow fails closed. In that case use a compatible explicit policy for the run (for example `--safe` / `--approval never`) or run the stage directly in the Codex TUI.
 
 The MVP intentionally does not auto-replay a turn interrupted while Codex is actively running; resume is guaranteed only at persisted human/blocker checkpoints. See [`workflows/shipflow-runner.md`](workflows/shipflow-runner.md) for the full contract.
 
@@ -193,6 +225,6 @@ Matt's original MIT license is preserved in [`MATT_LICENSE`](MATT_LICENSE). The 
 
 ## Design principle
 
-> Matt's skills own the engineering method. ShipFlow owns distribution, routing, and the external runner.
+> Matt's skills own the engineering method. Codex owns the coding-agent capabilities. ShipFlow owns distribution, routing, context boundaries, durable workflow state, and orchestration.
 
-ShipFlow does not rewrite Matt's engineering skills.
+ShipFlow does not rewrite Matt's engineering skills or reimplement Codex.
