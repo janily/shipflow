@@ -2,10 +2,35 @@ import { Codex } from "@openai/codex-sdk";
 import { CONTROL_SCHEMA, parseControlEnvelope } from "./control.js";
 
 export class CodexAgent {
-  constructor({ model, network = false, onEvent = () => {} } = {}) {
-    this.codex = new Codex();
-    this.model = model;
-    this.network = network;
+  constructor({
+    codex,
+    model,
+    reasoning,
+    sandbox,
+    approval,
+    network,
+    webSearch,
+    additionalDirectories = [],
+    codexConfigOverrides = [],
+    onEvent = () => {},
+  } = {}) {
+    this.codex =
+      codex ||
+      new Codex(
+        codexConfigOverrides.length > 0
+          ? { configOverrides: [...codexConfigOverrides] }
+          : {},
+      );
+    this.threadOverrides = compactThreadOptions({
+      model,
+      modelReasoningEffort: reasoning,
+      sandboxMode: sandbox,
+      approvalPolicy: approval,
+      networkAccessEnabled: network,
+      webSearchMode: webSearch,
+      additionalDirectories:
+        additionalDirectories.length > 0 ? [...additionalDirectories] : undefined,
+    });
     this.onEvent = onEvent;
   }
 
@@ -22,12 +47,15 @@ export class CodexAgent {
   #threadOptions(cwd) {
     return {
       workingDirectory: cwd,
-      model: this.model,
-      sandboxMode: "workspace-write",
-      approvalPolicy: "never",
-      networkAccessEnabled: this.network,
+      ...this.threadOverrides,
     };
   }
+}
+
+function compactThreadOptions(options) {
+  return Object.fromEntries(
+    Object.entries(options).filter(([, value]) => value !== undefined),
+  );
 }
 
 class CodexThread {
