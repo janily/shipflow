@@ -2,7 +2,7 @@
 
 ## Purpose and owner
 
-ShipFlow Runner is the external orchestration layer for executing Matt Pocock's user-invoked engineering workflow across real Codex threads without changing the upstream skills. ShipFlow owns stage ordering, durable checkpoints, and context boundaries; Matt's installed skills own each engineering stage.
+ShipFlow Runner is the external orchestration layer for executing Matt Pocock's user-invoked engineering workflow across real Codex threads without changing the upstream skills. ShipFlow owns stage ordering, durable checkpoints, and context boundaries; Matt's installed skills own each engineering stage; Codex owns coding-agent capabilities and user-level configuration.
 
 ## Trigger
 
@@ -31,7 +31,7 @@ The MVP supports Codex only.
 
 The runner checks all ten bundled skill names before starting. It refuses `main`/`master` and unrelated dirty working-tree changes by default. Those safeguards can be explicitly overridden with `--allow-main` and `--allow-dirty`.
 
-## Codex transport
+## Codex transport and configuration ownership
 
 The MVP uses `@openai/codex-sdk` rather than scraping terminal output.
 
@@ -39,8 +39,22 @@ The MVP uses `@openai/codex-sdk` rather than scraping terminal output.
 - Human answers within an active stage stay on the same thread.
 - Persisted safe checkpoints use the Codex thread id and `Codex.resumeThread()`.
 - Each turn uses structured output to return a small ShipFlow control envelope.
-- Codex runs with `workspace-write` sandboxing and `approvalPolicy: "never"`.
-- Network access is off by default and can be explicitly enabled with `--network`.
+- By default ShipFlow creates `Codex` without config overrides and passes only `workingDirectory` as a thread option.
+- Model, reasoning effort, sandbox, approval policy, network, web search, MCP configuration, and other normal Codex settings therefore remain owned by the user's Codex configuration unless explicitly overridden for the run.
+
+ShipFlow exposes opt-in thread overrides for `model`, `modelReasoningEffort`, `sandboxMode`, `approvalPolicy`, `networkAccessEnabled`, `webSearchMode`, and `additionalDirectories`, plus repeatable raw Codex `key=value` config overrides. Omitted values are not sent to the SDK.
+
+For a conservative execution preset, `--safe` applies:
+
+```text
+sandboxMode = workspace-write
+approvalPolicy = never
+networkAccessEnabled = false
+```
+
+An explicit override wins over the preset.
+
+One runtime limitation is intentional: the current TypeScript SDK exec event stream has no interactive approval request/response event. If the inherited Codex policy requires a human approval that cannot be satisfied in the SDK turn, the runner fails closed. It does not emulate Codex's approval UI. The operator can rerun with a compatible explicit policy or execute that stage in the Codex TUI.
 
 The control envelope contains only:
 
@@ -75,6 +89,8 @@ A stage may return `waiting_for_user`. The runner:
 4. continues only that active stage.
 
 The runner never answers product, testing-seam, ticket-granularity, setup, or irreversible decisions on the user's behalf. `:abort` stops the run.
+
+This human checkpoint mechanism is separate from Codex tool/shell approval. ShipFlow handles Matt workflow decisions; it does not implement a replacement approval UI for Codex exec.
 
 ## Durable state
 
@@ -117,6 +133,7 @@ Stop with a concrete error when:
 - the current branch is protected without an explicit override,
 - unrelated working-tree changes exist without an explicit override,
 - Codex cannot start or resume a thread,
+- inherited Codex configuration requires an interaction unavailable through the SDK transport,
 - Codex returns malformed orchestration control output,
 - `to-spec` completes without exactly one durable spec reference,
 - `to-tickets` completes without durable ticket references,
@@ -124,7 +141,7 @@ Stop with a concrete error when:
 - `implement` reports completion but has not created the commit required by the upstream skill,
 - a resume is attempted from a different repository/branch or from a non-safe checkpoint.
 
-Never substitute a home-grown version of a Matt skill after a failure.
+Never substitute a home-grown version of a Matt skill or Codex capability after a failure.
 
 ## Observability
 
@@ -146,6 +163,8 @@ Intermediate Codex command executions and file changes may be printed as progres
 - No Matt skill body is copied into runner logic.
 - User-invoked Matt skills are sent as explicit top-level Codex skill commands, never recursively invoked from the ShipFlow skill.
 - Setup has an isolated context; grill/spec/tickets share one planning context; every implementation ticket has a fresh context.
+- By default the runner does not override normal Codex model/reasoning/sandbox/network/web/MCP configuration.
+- Explicit Codex options alter only the requested settings; `--safe` restores the conservative MVP preset.
 - Durable state lives outside the working tree and supports safe checkpoint resume without replaying completed stages.
-- Missing artifacts, blockers, malformed control responses, or missing implementation commits fail closed.
-- Public runner behavior is covered by tests at the CLI/workflow seam rather than tests coupled to private implementation functions.
+- Missing artifacts, blockers, malformed control responses, unsupported approval interactions, or missing implementation commits fail closed.
+- Public runner behavior and the Codex adapter boundary are covered by tests rather than tests coupled to private implementation functions.
