@@ -113,7 +113,14 @@ npm install
 npm link
 ```
 
-The target repository still needs the standard ShipFlow skill bundle installed. The direct CLI entry remains available:
+Because `main` intentionally still contains the stable guided Skill while this work is under review, update only the target project's `shipflow` Skill from this local feature-branch checkout before testing `/shipflow`:
+
+```bash
+# Run from the target repository. Replace the path with your local ShipFlow checkout.
+npx skills@latest add /path/to/shipflow --skill shipflow -a codex --copy -y
+```
+
+The other nine Matt skills can remain from the normal ShipFlow bundle installation. The direct CLI entry also remains available:
 
 ```bash
 shipflow run "Add refresh-token rotation while preserving current sessions" --agent codex
