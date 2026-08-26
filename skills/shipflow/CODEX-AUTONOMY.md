@@ -47,6 +47,32 @@ Provide the originating spec reference when useful. Do not preload the planning 
 
 Wait for the upstream implementation skill to finish and verify the repository evidence it requires before advancing. Start the next ticket in another fresh agent/session.
 
+Each upstream `implement` owns its own TDD, verification, per-ticket `code-review`, and commit behavior.
+
+### Final whole-feature review
+
+After all required tickets are complete, spawn **another fresh agent/session** that did not participate in planning or implementation.
+
+Its first task is the installed review skill, supplied with the original feature fixed point and the originating spec reference:
+
+```text
+$code-review <feature-fixed-point> against <spec-reference>
+```
+
+The fixed point is the Git commit ShipFlow pinned after repository setup and before feature planning began. Reuse that same fixed point for every final-review retry so the review always covers the complete feature diff.
+
+The final review must preserve Matt's two axes:
+
+```text
+Standards
++
+Spec
+```
+
+If it reports a concrete spec miss/wrong behavior or hard documented-standard violation, create a new fresh implementation agent and invoke upstream `$implement` with the relevant ticket/spec reference plus the review feedback. After the repair commit/evidence exists, close that repair agent and spawn a **new** final-review agent to rerun `$code-review` against the same original fixed point.
+
+Do not automatically treat a baseline smell judgement call as blocking unless the upstream review identifies a concrete required change.
+
 ## Codex CLI session fallback
 
 Use this only when native multi-agent tools are unavailable but the `codex` CLI is available.
@@ -104,15 +130,29 @@ $implement <ticket-reference>
 
 Each ticket therefore gets a real fresh Codex context. Verify the commit/test/review evidence expected by the installed upstream `implement` skill before moving on.
 
+### Final review session
+
+After all implementation tickets are complete, start another brand-new `codex exec` session with the installed final review task:
+
+```text
+$code-review <feature-fixed-point> against <spec-reference>
+```
+
+Do not resume any implementation session for final review. The final reviewer must start from a clean model context and inspect the repository/branch itself.
+
+If the final review requires repair, start a separate new `codex exec` implementation session for the repair, then start yet another fresh `codex exec` review session. Never reuse the old reviewer after repository state changes.
+
 ## Stage evidence
 
 Use upstream durable evidence instead of ShipFlow-owned copies:
 
 - setup: repository workflow conventions/configuration exist,
+- fixed point: the original feature-start Git commit resolves,
 - grill: the upstream skill reports completion and its required documentation/decisions are resolved,
 - spec: exactly one durable spec reference exists,
 - tickets: durable ticket references and dependencies exist in the configured tracker,
-- implement: the ticket's upstream completion conditions, verification, review, and commit evidence exist.
+- implement: the ticket's upstream completion conditions, verification, per-ticket review, and commit evidence exist,
+- final review: upstream `code-review` reviewed the complete diff from the original fixed point to the completed HEAD against the originating spec, with no blocking findings remaining.
 
 If the evidence is ambiguous, keep the current stage active instead of guessing that it completed.
 
@@ -122,6 +162,8 @@ If the evidence is ambiguous, keep the current stage active instead of guessing 
 - Do not expose hidden reasoning from child agents; relay only their user-facing output and durable artifacts.
 - Do not auto-answer upstream human decisions.
 - Do not reuse a planning context as an implementation context.
+- Do not reuse implementation context as final-review context.
+- Do not mark all-ticket completion as whole-feature completion before final review passes.
 - Do not introduce a Node/Python/Bash ShipFlow runner process as a required product dependency.
 
 The desired experience remains one entry point:
