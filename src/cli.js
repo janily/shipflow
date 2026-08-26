@@ -23,8 +23,11 @@ export async function main(argv = process.argv.slice(2), overrides = {}) {
     return 0;
   }
 
-  const rl = createInterface({ input: overrides.stdin || stdin, output: overrides.stdout || stdout });
-  const io = overrides.io || createIo(rl, overrides.stdout || stdout);
+  const out = overrides.stdout || stdout;
+  const rl = parsed.handoff
+    ? null
+    : createInterface({ input: overrides.stdin || stdin, output: out });
+  const io = overrides.io || (parsed.handoff ? createHandoffIo() : createIo(rl, out));
   const agent =
     overrides.agent ||
     new CodexAgent({
@@ -36,7 +39,7 @@ export async function main(argv = process.argv.slice(2), overrides = {}) {
       webSearch: parsed.webSearch,
       additionalDirectories: parsed.additionalDirectories,
       codexConfigOverrides: parsed.codexConfigOverrides,
-      onEvent: (event) => printProgress(event, overrides.stdout || stdout),
+      onEvent: parsed.handoff ? () => {} : (event) => printProgress(event, out),
     });
 
   try {
@@ -52,31 +55,50 @@ export async function main(argv = process.argv.slice(2), overrides = {}) {
           allowDirty: parsed.allowDirty,
           allowMain: parsed.allowMain,
         },
-        { ...overrides, agent, io },
+        { ...overrides, agent, io, pauseOnHuman: parsed.handoff },
       );
-      io.info(`State: ${path.join(state.gitDir, "shipflow", "runs", `${state.runId}.json`)}`);
+      if (parsed.handoff) {
+        writeHandoff(state, out);
+      } else {
+        io.info(`State: ${statePath(state)}`);
+      }
       return 0;
     }
 
     if (parsed.command === "resume") {
-      await resumeShipFlow(
+      const state = await resumeShipFlow(
         {
           runId: parsed.runId,
           cwd: parsed.cwd,
           allowDirty: parsed.allowDirty,
           allowMain: parsed.allowMain,
+          answer: parsed.answer,
         },
-        { ...overrides, agent, io },
+        { ...overrides, agent, io, pauseOnHuman: parsed.handoff },
       );
+      if (parsed.handoff) {
+        writeHandoff(state, out);
+      }
       return 0;
     }
 
     throw new Error(`Unknown command: ${parsed.command}`);
   } catch (error) {
-    io.error(error instanceof Error ? error.message : String(error));
+    if (parsed.handoff) {
+      out.write(
+        `${JSON.stringify({
+          status: "failed",
+          stage: error?.shipflowState?.stage ?? null,
+          runId: error?.shipflowState?.runId ?? null,
+          message: error instanceof Error ? error.message : String(error),
+        })}\n`,
+      );
+    } else {
+      io.error(error instanceof Error ? error.message : String(error));
+    }
     return 1;
   } finally {
-    rl.close();
+    rl?.close();
   }
 }
 
@@ -99,6 +121,8 @@ export function parseArgs(argv) {
     additionalDirectories: [],
     codexConfigOverrides: [],
     safe: false,
+    handoff: false,
+    answer: undefined,
     allowDirty: false,
     allowMain: false,
   };
@@ -115,7 +139,8 @@ export function parseArgs(argv) {
       arg === "--approval" ||
       arg === "--web-search" ||
       arg === "--add-dir" ||
-      arg === "--codex-config"
+      arg === "--codex-config" ||
+      arg === "--answer"
     ) {
       const value = argv[++i];
       if (!value) throw new Error(`${arg} requires a value`);
@@ -128,6 +153,7 @@ export function parseArgs(argv) {
       if (arg === "--approval") flags.approval = requireEnum(arg, value, APPROVAL_POLICIES);
       if (arg === "--web-search") flags.webSearch = requireEnum(arg, value, WEB_SEARCH_MODES);
       if (arg === "--add-dir") flags.additionalDirectories.push(path.resolve(value));
+      if (arg === "--answer") flags.answer = value;
       if (arg === "--codex-config") {
         if (!value.includes("=")) {
           throw new Error("--codex-config requires a raw Codex key=value override");
@@ -147,6 +173,10 @@ export function parseArgs(argv) {
     }
     if (arg === "--safe") {
       flags.safe = true;
+      continue;
+    }
+    if (arg === "--handoff") {
+      flags.handoff = true;
       continue;
     }
     if (arg === "--allow-dirty") {
@@ -172,6 +202,9 @@ export function parseArgs(argv) {
   if (command === "run") {
     if (values.length !== 1 || !values[0].trim()) {
       throw new Error('Usage: shipflow run "<development goal>" [options]');
+    }
+    if (flags.answer !== undefined) {
+      throw new Error("--answer is only valid with shipflow resume");
     }
     return { command, goal: values[0], ...flags };
   }
@@ -200,6 +233,37 @@ function createIo(rl, out) {
     info: (text) => out.write(`[shipflow] ${text}\n`),
     error: (text) => out.write(`[shipflow:error] ${text}\n`),
   };
+}
+
+function createHandoffIo() {
+  return {
+    ask: async () => {
+      throw new Error("ShipFlow handoff mode cannot read interactive stdin");
+    },
+    output: () => {},
+    info: () => {},
+    error: () => {},
+  };
+}
+
+function statePath(state) {
+  return path.join(state.gitDir, "shipflow", "runs", `${state.runId}.json`);
+}
+
+function writeHandoff(state, out) {
+  out.write(
+    `${JSON.stringify({
+      status: state.status,
+      stage: state.stage,
+      runId: state.runId,
+      message: state.pendingMessage || state.failure || null,
+      statePath: statePath(state),
+      specReference: state.specReference || null,
+      ticketCount: state.tickets?.length || 0,
+      completedTicketCount: state.completedTickets?.length || 0,
+      finalHead: state.finalHead || null,
+    })}\n`,
+  );
 }
 
 function printProgress(event, out) {
@@ -241,6 +305,10 @@ Optional Codex overrides:
   --add-dir <path>             repeatable
   --codex-config <key=value>   raw Codex config override; repeatable
   --safe                       workspace-write + approval never + network off
+
+Skill bridge:
+  --handoff                    pause at human checkpoints and emit one JSON result
+  --answer <text>              answer a persisted checkpoint during resume
 
 Other:
   --agent codex
