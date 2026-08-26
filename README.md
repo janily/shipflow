@@ -10,7 +10,13 @@ The bundled route is:
 
 ```text
 grill-with-docs → to-spec → to-tickets → fresh context → implement
-                                                     └→ tdd + code-review
+                                                     └→ tdd + per-ticket code-review
+                                      ↓ all tickets complete
+                              fresh final review context
+                                      ↓
+                                  code-review
+                                      ↓
+                                   complete
 ```
 
 The Matt Pocock skills in this repository are mirrored from [`mattpocock/skills`](https://github.com/mattpocock/skills) without modifying their contents. `skills/shipflow` is the only ShipFlow-owned skill.
@@ -87,6 +93,8 @@ ShipFlow automatically drives the installed upstream workflow:
 ```text
 /shipflow <goal>
       ↓
+pin feature fixed point
+      ↓
 isolated planning context
   $grill-with-docs <goal>
   $to-spec
@@ -96,12 +104,44 @@ close planning context
       ↓
 fresh implementation context per ticket
   $implement <ticket>
-  └─ upstream tdd + code-review + commit
+  └─ upstream tdd + per-ticket code-review + commit
+      ↓
+all tickets complete
+      ↓
+fresh final review context
+  $code-review <feature-fixed-point> against <spec>
+      ↓
+Standards + Spec review
+      ↓
+blocking finding?
+  ├─ yes → fresh $implement repair context → fresh final review
+  └─ no  → COMPLETE
 ```
 
-You do **not** manually type `/grill-with-docs`, `/to-spec`, `/to-tickets`, or `/implement` during normal autonomous use.
+You do **not** manually type `/grill-with-docs`, `/to-spec`, `/to-tickets`, `/implement`, or `/code-review` during normal autonomous use.
 
 When an upstream skill needs a genuine human decision, ShipFlow surfaces that question in the current conversation. Answer the engineering question normally; ShipFlow continues the same active stage and then advances automatically.
+
+### Two levels of code review
+
+ShipFlow intentionally uses review at two different scopes:
+
+```text
+per-ticket review
+  owned by upstream implement
+  checks the ticket implementation before its commit
+
+final whole-feature review
+  runs after all tickets complete
+  reviews the entire branch from the original feature fixed point
+  checks Standards + Spec across the integrated feature
+```
+
+Every ticket passing its local review does not by itself mean the whole feature is complete. ShipFlow reaches `COMPLETE` only after a fresh final review context runs Matt's upstream `code-review` against the original feature fixed point and originating spec with no blocking findings.
+
+If that final review finds a concrete spec miss/wrong behavior or a hard documented-standard violation, ShipFlow creates a fresh implementation context to repair the relevant ticket/spec, then creates a new fresh final-review context and runs `code-review` again against the **same original fixed point**.
+
+Baseline code-smell findings that Matt's review labels as judgement calls are not automatically blocking unless the review identifies a concrete required change.
 
 ### No external Runner
 
@@ -117,14 +157,14 @@ For Codex execution details, see [`skills/shipflow/CODEX-AUTONOMY.md`](skills/sh
 
 ### Why this still respects Matt's skills
 
-ShipFlow does not copy Matt's engineering instructions into its own prompt logic. Each user-invoked Matt skill is started as the explicit top-level task inside the appropriate planning or implementation agent/session.
+ShipFlow does not copy Matt's engineering instructions into its own prompt logic. Each user-invoked Matt skill is started as the explicit top-level task inside the appropriate planning, implementation, or final-review agent/session.
 
 That keeps the ownership split clear:
 
 ```text
 Matt skills  → engineering method
 Codex/agent  → coding + isolated contexts
-ShipFlow     → ordering + context boundaries + human handoff
+ShipFlow     → ordering + context boundaries + human handoff + final quality gate
 ```
 
 ### Guided/manual mode
@@ -142,19 +182,21 @@ planning context
   to-tickets
 ```
 
-Implementation deliberately starts fresh:
+Implementation deliberately starts fresh per ticket, and final review starts fresh again:
 
 ```text
 planning transcript
       X
       │ not copied
       ▼
-Ticket 01 → fresh context
-Ticket 02 → another fresh context
-Ticket 03 → another fresh context
+Ticket 01 → fresh implementation context
+Ticket 02 → another fresh implementation context
+Ticket 03 → another fresh implementation context
+      ↓
+Final Review → fresh independent review context
 ```
 
-Only durable artifacts cross that boundary: the goal, published spec reference, ticket references/dependencies, and repository state.
+Only durable artifacts cross those boundaries: the goal, original feature fixed point, published spec reference, ticket references/dependencies, commits, verification evidence, and repository state.
 
 ## Upstream mirror
 
@@ -206,6 +248,6 @@ Matt's original MIT license is preserved in [`MATT_LICENSE`](MATT_LICENSE). The 
 
 ## Design principle
 
-> Matt's skills own the engineering method. The host agent owns coding capabilities and isolated contexts. ShipFlow owns distribution and orchestration.
+> Matt's skills own the engineering method. The host agent owns coding capabilities and isolated contexts. ShipFlow owns distribution, orchestration, context boundaries, and the final whole-feature quality gate.
 
 ShipFlow does not rewrite Matt's engineering skills and does not reimplement Codex.
