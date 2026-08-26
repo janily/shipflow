@@ -9,21 +9,20 @@
 5. `MATT_LICENSE` must match the pinned upstream license.
 6. `npx skills@latest add . --list` must discover the bundle without relying on hidden installer behavior.
 
-## ShipFlow v1 route guide
+## Autonomous ShipFlow
 
-7. `shipflow` is user-invoked and acts as a router; it does not recursively invoke another user-invoked Matt skill.
-8. An unconfigured repository routes to `setup-matt-pocock-skills`.
-9. A fuzzy feature routes to `grill-with-docs`.
-10. Completed shared understanding with no spec routes to `to-spec`.
-11. An approved spec with no tickets routes to `to-tickets`.
-12. Approved tickets route to a fresh context/session followed by `implement`.
-13. ShipFlow does not create its own TDD or review rules; upstream `implement` owns `tdd` and `code-review` behavior.
-14. If the user asks for autonomous one-trigger execution, v1 identifies the external Runner as the correct layer rather than pretending recursive Skill invocation is equivalent.
-
-## Runner v2
-
-15. The Runner executes user-invoked stages as explicit top-level agent commands.
-16. The Runner preserves upstream human checkpoints.
-17. The Runner closes the planning context before starting implementation.
-18. Durable runner state stores references and stage state, not copies of upstream specs or tickets.
-19. Missing upstream capabilities fail closed instead of falling back to an emulated Matt workflow.
+7. `/shipflow <goal>` is autonomous by default; it does not merely print the next Matt command.
+8. The main-branch workflow must not require an external `shipflow run` executable, Node Runner, `npm link`, or custom installer.
+9. Normal autonomous use must not require the user to manually invoke `grill-with-docs`, `to-spec`, `to-tickets`, or `implement`.
+10. Matt's installed skills remain the source of truth. ShipFlow must not copy, paraphrase, or emulate their engineering instructions.
+11. Every user-invoked Matt stage is started as an explicit top-level skill task inside its own appropriate agent/session boundary.
+12. `grill-with-docs`, `to-spec`, and `to-tickets` share one isolated planning context so agreed planning context is preserved through ticket publication.
+13. The planning context is not reused for implementation. Only durable goal/spec/ticket/repository references cross the boundary.
+14. Every implementation ticket starts in a genuinely fresh agent/session context and invokes upstream `implement` as the top-level task.
+15. Upstream `implement` owns TDD, verification, `code-review`, and commit behavior; ShipFlow does not create parallel home-grown implementation rules.
+16. Human questions from any upstream stage are surfaced to the user and the answer is returned to the same active stage automatically; the user does not need to type another workflow command.
+17. On Codex, ShipFlow prefers native multi-agent capabilities and may fall back to native `codex exec` / `codex exec resume` sessions; neither path is a separate ShipFlow Runner product dependency.
+18. Codex CLI fallback must preserve normal user configuration and must not use `--ephemeral` for a session that may need resume.
+19. If the runtime cannot provide a genuinely isolated context, ShipFlow fails closed instead of claiming that one long conversation is a fresh context.
+20. Re-invoking `/shipflow` inspects durable upstream artifacts and skips completed stages rather than replaying work just to reconstruct model context.
+21. Guided/manual mode exists only when the user explicitly requests it.
