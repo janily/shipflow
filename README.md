@@ -1,6 +1,6 @@
 # ShipFlow
 
-ShipFlow packages and orchestrates [Matt Pocock's](https://github.com/mattpocock) open-source engineering skills into a standard `skills` bundle, plus a small route guide that tells you which workflow boundary comes next.
+ShipFlow packages and orchestrates [Matt Pocock's](https://github.com/mattpocock) open-source engineering skills into a standard `skills` bundle, with an autonomous `/shipflow` frontend and an external Codex Runner that manages workflow state and fresh contexts.
 
 The bundled route is:
 
@@ -37,7 +37,7 @@ npx skills@latest add janily/shipflow --skill '*' -a cursor --copy -y
 npx skills@latest add janily/shipflow --skill '*' -a codex --copy -g -y
 ```
 
-No custom installer is required. Installation, lock tracking, and updates stay inside the standard `skills` CLI ecosystem.
+No custom Skill installer is required. Installation, lock tracking, and Skill updates stay inside the standard `skills` CLI ecosystem.
 
 Verify the install with:
 
@@ -70,27 +70,38 @@ Run Matt's setup skill once per repository:
 
 For a local file-based tracker, choose **Local Markdown**. Matt's setup skill owns the tracker conventions and file layout.
 
-## Use ShipFlow v1
+## Use `/shipflow` — autonomous by default
 
-ShipFlow v1 is deliberately a workflow guide, not a recursive skill runner.
+Once the Runner CLI is available, the normal in-Codex entry point is:
 
 ```text
 /shipflow Add refresh-token rotation while preserving current sessions
 ```
 
-It inspects the current workflow state and returns the next explicit Matt Pocock command, for example:
+`/shipflow` does not ask you to manually type `/grill-with-docs`, `/to-spec`, `/to-tickets`, or `/implement`. It starts the external Runner in handoff mode and automatically drives:
 
 ```text
-Current phase: discovery
-Next: /grill-with-docs Add refresh-token rotation while preserving current sessions
-Reason: the change has not reached shared understanding yet.
+/shipflow <goal>
+      ↓
+Runner planning thread
+  $grill-with-docs <goal>
+  $to-spec
+  $to-tickets <spec>
+      ↓
+fresh Codex thread per ticket
+  $implement <ticket>
+  └─ upstream tdd + code-review + commit
 ```
 
-Why not make the Skill recursively call every stage? Matt's current invocation model treats `grill-with-docs`, `to-spec`, `to-tickets`, and `implement` as user-invoked workflow boundaries. ShipFlow v1 preserves that contract rather than emulating or bypassing it.
+When an upstream stage needs a real human decision, the Runner persists a checkpoint and returns the exact question to the current Codex conversation. You answer the engineering question normally; `/shipflow` automatically resumes the same run and thread. You do not need to type another ShipFlow or Matt command.
+
+If you explicitly want the old step-by-step experience, ask `/shipflow` for **guided/manual mode**.
+
+The Skill is still not recursively invoking Matt's user-invoked skills. It delegates execution to the external Runner, which sends those Skills as explicit top-level turns in the appropriate Codex threads.
 
 ## Codex Runner MVP
 
-The `feat/codex-runner-mvp` branch contains the first external runner for true one-trigger execution. It uses the official `@openai/codex-sdk` and keeps Matt's user-invoked skills as explicit top-level Codex turns.
+The `feat/codex-runner-mvp` branch contains the first external runner for true one-trigger execution. It uses the official `@openai/codex-sdk`.
 
 For branch testing:
 
@@ -102,32 +113,31 @@ npm install
 npm link
 ```
 
-The target repository still needs the standard ShipFlow skill bundle installed. Run the runner from a feature branch in that target repository:
+The target repository still needs the standard ShipFlow skill bundle installed. The direct CLI entry remains available:
 
 ```bash
 shipflow run "Add refresh-token rotation while preserving current sessions" --agent codex
 ```
 
-The MVP executes:
+### Skill handoff protocol
 
-```text
-optional setup thread
-        ↓
-fresh planning thread
-  $grill-with-docs <goal>
-  $to-spec
-  $to-tickets <spec>
-        ↓
-close planning context
-        ↓
-fresh Codex thread per ticket
-  $implement <ticket>
-  └─ upstream tdd + code-review + commit
+`/shipflow` uses a non-interactive bridge so a nested Runner never blocks waiting for terminal stdin:
+
+```bash
+shipflow run "<goal>" --handoff
 ```
 
-Human questions remain interactive and continue on the same active Codex thread. Durable orchestration state is stored under `<git-dir>/shipflow/runs/<run-id>.json`, outside the working tree.
+At `waiting_for_user`, `blocked`, or `complete`, the command emits one JSON handoff object containing the run id, stage, status, and message. After the user answers in Codex, the Skill resumes with:
 
-Resume a persisted human checkpoint or blocker with:
+```bash
+shipflow resume <run-id> --handoff --answer "<answer>"
+```
+
+The Runner then continues automatically until the next human checkpoint or workflow completion.
+
+Durable orchestration state is stored under `<git-dir>/shipflow/runs/<run-id>.json`, outside the working tree.
+
+The direct interactive CLI can also resume a persisted checkpoint or blocker with:
 
 ```bash
 shipflow resume <run-id>
@@ -163,7 +173,7 @@ shipflow run "Build feature" --codex-config 'some.codex.key=value'
 
 `--add-dir` and `--codex-config` are repeatable. `--network` and `--no-network` explicitly override the inherited network setting.
 
-For the previous conservative MVP behavior, use:
+For the conservative execution preset, use:
 
 ```bash
 shipflow run "Build feature" --safe
@@ -219,7 +229,7 @@ The following skills bundled in this repository are mirrored from [`mattpocock/s
 
 Huge thanks to Matt for sharing the workflow, the skills, and the ideas around context engineering that inspired ShipFlow.
 
-ShipFlow does not claim authorship of these upstream skills. Its contribution is the standard multi-skill distribution, workflow routing, upstream synchronization, and the external runner being developed for end-to-end orchestration.
+ShipFlow does not claim authorship of these upstream skills. Its contribution is the standard multi-skill distribution, workflow routing, upstream synchronization, and the external runner for end-to-end orchestration.
 
 Matt's original MIT license is preserved in [`MATT_LICENSE`](MATT_LICENSE). The exact upstream revision mirrored by this repository is recorded in [`UPSTREAM_COMMIT`](UPSTREAM_COMMIT).
 
