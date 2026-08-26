@@ -23,6 +23,7 @@ export async function runShipFlow(options, deps) {
       stage: "complete",
       status: "complete",
       activeThreadId: null,
+      pendingMessage: null,
       lastCheckpoint: "workflow-complete",
       finalHead: runtime.currentHead(state.repoRoot),
       failure: null,
@@ -31,6 +32,13 @@ export async function runShipFlow(options, deps) {
     runtime.io.info(`ShipFlow run complete: ${state.runId}`);
     return state;
   } catch (error) {
+    if (error?.shipflowCheckpoint) {
+      return error.shipflowState;
+    }
+    if (runtime.pauseOnHuman && error?.shipflowState?.status === "blocked") {
+      return error.shipflowState;
+    }
+
     const baseState = error?.shipflowState || state;
     const failed = await stateStore.save({
       ...baseState,
@@ -56,6 +64,13 @@ export async function resumeShipFlow(options, deps) {
   }
   if (state.status === "complete") {
     runtime.io.info(`ShipFlow run ${state.runId} is already complete.`);
+    return state;
+  }
+  if (
+    runtime.pauseOnHuman &&
+    runtime.answer === undefined &&
+    (state.status === "waiting_for_user" || state.status === "blocked")
+  ) {
     return state;
   }
 
@@ -84,6 +99,7 @@ export async function resumeShipFlow(options, deps) {
       stage: "complete",
       status: "complete",
       activeThreadId: null,
+      pendingMessage: null,
       lastCheckpoint: "workflow-complete",
       finalHead: runtime.currentHead(state.repoRoot),
       failure: null,
@@ -91,6 +107,13 @@ export async function resumeShipFlow(options, deps) {
     runtime.io.info(`ShipFlow run complete: ${state.runId}`);
     return state;
   } catch (error) {
+    if (error?.shipflowCheckpoint) {
+      return error.shipflowState;
+    }
+    if (runtime.pauseOnHuman && error?.shipflowState?.status === "blocked") {
+      return error.shipflowState;
+    }
+
     const baseState = error?.shipflowState || state;
     const failed = await stateStore.save({
       ...baseState,
@@ -110,6 +133,7 @@ async function executeSetup({ state, stateStore, runtime }) {
     status: "running",
     activeThreadId: thread.id,
     setupThreadId: thread.id,
+    pendingMessage: null,
     lastCheckpoint: "setup-started",
   });
 
@@ -127,6 +151,7 @@ async function executeSetup({ state, stateStore, runtime }) {
     stage: "grill",
     status: "running",
     activeThreadId: null,
+    pendingMessage: null,
     lastCheckpoint: "setup-complete",
     failure: null,
   });
@@ -140,6 +165,7 @@ async function executePlanning({ state, stateStore, runtime }) {
     status: "running",
     planningThreadId: thread.id,
     activeThreadId: thread.id,
+    pendingMessage: null,
     lastCheckpoint: "planning-started",
   });
 
@@ -155,6 +181,7 @@ async function executePlanning({ state, stateStore, runtime }) {
     ...grill.state,
     stage: "spec",
     status: "running",
+    pendingMessage: null,
     lastCheckpoint: "grill-complete",
   });
 
@@ -172,6 +199,7 @@ async function executePlanning({ state, stateStore, runtime }) {
     stage: "tickets",
     status: "running",
     specReference: specArtifact.reference,
+    pendingMessage: null,
     lastCheckpoint: "spec-complete",
   });
 
@@ -195,6 +223,7 @@ async function executePlanning({ state, stateStore, runtime }) {
     activeThreadId: null,
     tickets: ticketArtifacts,
     nextTicketIndex: state.nextTicketIndex ?? 0,
+    pendingMessage: null,
     lastCheckpoint: "tickets-complete",
   });
 }
@@ -206,7 +235,13 @@ async function continuePlanningFromCheckpoint({ state, stateStore, runtime }) {
   const thread = runtime.agent.resumeThread(state.planningThreadId, { cwd: state.repoRoot });
 
   if (state.stage === "grill") {
-    state = await stateStore.save({ ...state, stage: "spec", status: "running", lastCheckpoint: "grill-complete" });
+    state = await stateStore.save({
+      ...state,
+      stage: "spec",
+      status: "running",
+      pendingMessage: null,
+      lastCheckpoint: "grill-complete",
+    });
   }
 
   if (state.stage === "spec") {
@@ -224,6 +259,7 @@ async function continuePlanningFromCheckpoint({ state, stateStore, runtime }) {
       stage: "tickets",
       status: "running",
       specReference: specArtifact.reference,
+      pendingMessage: null,
       lastCheckpoint: "spec-complete",
     });
   }
@@ -248,6 +284,7 @@ async function continuePlanningFromCheckpoint({ state, stateStore, runtime }) {
       activeThreadId: null,
       tickets: ticketArtifacts,
       nextTicketIndex: state.nextTicketIndex ?? 0,
+      pendingMessage: null,
       lastCheckpoint: "tickets-complete",
     });
   }
@@ -272,6 +309,7 @@ async function executeImplementation({ state, stateStore, runtime }) {
       currentTicket: ticket,
       ticketStartHead: beforeHead,
       nextTicketIndex: index,
+      pendingMessage: null,
       lastCheckpoint: `ticket-${index + 1}-started`,
     });
 
@@ -305,6 +343,7 @@ async function executeImplementation({ state, stateStore, runtime }) {
         ...(state.completedTickets || []),
         { reference: ticket.reference, threadId: thread.id, commit: afterHead },
       ],
+      pendingMessage: null,
       lastCheckpoint: `ticket-${index}-complete`,
       finalHead: afterHead,
     });
@@ -318,11 +357,14 @@ async function resumeActiveStage({ state, stateStore, runtime }) {
     throw new Error(`Run is ${state.status} but has no active Codex thread to resume`);
   }
   const thread = runtime.agent.resumeThread(state.activeThreadId, { cwd: state.repoRoot });
-  const answer = await runtime.io.ask(
-    state.status === "blocked"
-      ? "Describe what changed so ShipFlow can retry the blocked stage (or type :abort): "
-      : "Answer the pending upstream question(s) (or type :abort): ",
-  );
+  const answer =
+    runtime.answer !== undefined
+      ? runtime.answer
+      : await runtime.io.ask(
+          state.status === "blocked"
+            ? "Describe what changed so ShipFlow can retry the blocked stage (or type :abort): "
+            : "Answer the pending upstream question(s) (or type :abort): ",
+        );
   if (answer.trim() === ":abort") {
     throw new Error("Run aborted by user");
   }
@@ -332,7 +374,7 @@ async function resumeActiveStage({ state, stateStore, runtime }) {
     thread,
     initialPrompt:
       state.status === "blocked" ? retryPrompt(state.stage, answer) : continuationPrompt(state.stage, answer),
-    state: { ...state, status: "running" },
+    state: { ...state, status: "running", pendingMessage: null },
     stateStore,
     runtime,
   });
@@ -347,6 +389,7 @@ async function finalizeResumedStage({ state, result, stateStore, runtime }) {
       stage: "grill",
       status: "running",
       activeThreadId: null,
+      pendingMessage: null,
       lastCheckpoint: "setup-complete",
       failure: null,
     });
@@ -358,6 +401,7 @@ async function finalizeResumedStage({ state, result, stateStore, runtime }) {
       stage: "spec",
       status: "running",
       activeThreadId: state.planningThreadId,
+      pendingMessage: null,
       lastCheckpoint: "grill-complete",
       failure: null,
     });
@@ -371,6 +415,7 @@ async function finalizeResumedStage({ state, result, stateStore, runtime }) {
       status: "running",
       activeThreadId: state.planningThreadId,
       specReference: specArtifact.reference,
+      pendingMessage: null,
       lastCheckpoint: "spec-complete",
       failure: null,
     });
@@ -388,6 +433,7 @@ async function finalizeResumedStage({ state, result, stateStore, runtime }) {
       activeThreadId: null,
       tickets: ticketArtifacts,
       nextTicketIndex: state.nextTicketIndex ?? 0,
+      pendingMessage: null,
       lastCheckpoint: "tickets-complete",
       failure: null,
     });
@@ -417,6 +463,7 @@ async function finalizeResumedStage({ state, result, stateStore, runtime }) {
         ...(state.completedTickets || []),
         { reference: completedTicket.reference, threadId: completedThreadId, commit: afterHead },
       ],
+      pendingMessage: null,
       lastCheckpoint: `ticket-${nextTicketIndex}-complete`,
       finalHead: afterHead,
       failure: null,
@@ -436,6 +483,7 @@ async function runInteractiveStage({ stage, thread, initialPrompt, state, stateS
       stage,
       status: "running",
       activeThreadId: thread.id || currentState.activeThreadId,
+      pendingMessage: null,
       failure: null,
     });
 
@@ -453,6 +501,7 @@ async function runInteractiveStage({ stage, thread, initialPrompt, state, stateS
         stage,
         status: "running",
         activeThreadId: thread.id,
+        pendingMessage: null,
         lastCheckpoint: `${stage}-complete`,
       });
       return { state: currentState, result };
@@ -464,6 +513,7 @@ async function runInteractiveStage({ stage, thread, initialPrompt, state, stateS
         stage,
         status: "blocked",
         activeThreadId: thread.id,
+        pendingMessage: result.message,
         lastCheckpoint: `${stage}-blocked`,
         failure: result.message,
       });
@@ -477,8 +527,16 @@ async function runInteractiveStage({ stage, thread, initialPrompt, state, stateS
       stage,
       status: "waiting_for_user",
       activeThreadId: thread.id,
+      pendingMessage: result.message,
       lastCheckpoint: `${stage}-waiting-for-user`,
     });
+
+    if (runtime.pauseOnHuman) {
+      const checkpoint = new Error(`ShipFlow ${stage} stage is waiting for user input`);
+      checkpoint.shipflowCheckpoint = true;
+      checkpoint.shipflowState = currentState;
+      throw checkpoint;
+    }
 
     const answer = await runtime.io.ask("Your answer (or :abort): ");
     if (answer.trim() === ":abort") {
@@ -530,6 +588,7 @@ function initialState(options, pre) {
     currentTicket: null,
     ticketStartHead: null,
     completedTickets: [],
+    pendingMessage: null,
     lastCheckpoint: "preflight-complete",
     failure: null,
     createdAt: now,
@@ -549,6 +608,8 @@ function makeRuntime(options, deps = {}) {
   return {
     agent: deps.agent,
     io: deps.io,
+    pauseOnHuman: deps.pauseOnHuman === true,
+    answer: options.answer,
     preflight: deps.preflight || defaultPreflight,
     currentHead: deps.currentHead || defaultCurrentHead,
     stateStoreFactory: deps.stateStoreFactory || ((gitDir) => new StateStore(gitDir)),
