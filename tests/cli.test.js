@@ -15,6 +15,8 @@ test("run inherits Codex defaults unless the user explicitly overrides them", ()
   assert.deepEqual(parsed.additionalDirectories, []);
   assert.deepEqual(parsed.codexConfigOverrides, []);
   assert.equal(parsed.safe, false);
+  assert.equal(parsed.handoff, false);
+  assert.equal(parsed.answer, undefined);
 });
 
 test("run parses explicit Codex overrides without changing ShipFlow safety flags", () => {
@@ -71,6 +73,21 @@ test("explicit options win over the safe preset", () => {
   assert.equal(parsed.sandbox, "danger-full-access");
   assert.equal(parsed.approval, "never");
   assert.equal(parsed.network, true);
+});
+
+test("handoff mode and resume answers are explicit CLI behavior", () => {
+  const run = parseArgs(["run", "Build feature", "--handoff"]);
+  assert.equal(run.handoff, true);
+  assert.equal(run.answer, undefined);
+
+  const resume = parseArgs(["resume", "run-123", "--handoff", "--answer", "Use option A"]);
+  assert.equal(resume.handoff, true);
+  assert.equal(resume.answer, "Use option A");
+
+  assert.throws(
+    () => parseArgs(["run", "Build feature", "--answer", "A"]),
+    /--answer is only valid with shipflow resume/,
+  );
 });
 
 test("rejects invalid enumerated Codex options", () => {
