@@ -4,9 +4,17 @@
 
 ShipFlow Runner is the external orchestration layer for executing Matt Pocock's user-invoked engineering workflow across real Codex threads without changing the upstream skills. ShipFlow owns stage ordering, durable checkpoints, and context boundaries; Matt's installed skills own each engineering stage; Codex owns coding-agent capabilities and user-level configuration.
 
+`/shipflow <goal>` is the primary in-Codex frontend. The direct `shipflow run` CLI remains available for terminal-first usage.
+
 ## Trigger
 
-Explicit manual start:
+In-Codex autonomous start:
+
+```text
+/shipflow <development goal>
+```
+
+Direct CLI start:
 
 ```bash
 shipflow run "<development goal>" --agent codex
@@ -26,6 +34,7 @@ The MVP supports Codex only.
 - Node.js 18+.
 - A working Codex installation/authentication usable by `@openai/codex-sdk`.
 - The complete ShipFlow multi-skill bundle installed for Codex.
+- The external ShipFlow Runner CLI available to `/shipflow`.
 - Repository write access for specs, tickets, code, tests, and commits.
 - Repository workflow configuration from `setup-matt-pocock-skills`, or permission to run that setup interactively.
 
@@ -75,20 +84,50 @@ It is orchestration metadata, not a replacement for Matt's skill output or track
 5. On that same planning thread, send `$to-spec`. Persist the durable published spec reference returned by the stage.
 6. On that same planning thread, send `$to-tickets <spec-reference>`. Persist every durable ticket reference in dependency-safe publication order.
 7. **Close the planning context.** Do not carry its transcript into implementation; retain only durable references and the recorded planning thread id.
-8. **Fresh implementation context per ticket.** For each ticket in dependency-safe order, start a new Codex thread and send `$implement <ticket-reference>` plus the originating spec reference. This preserves Matt's requirement that each tracer-bullet ticket fit in a fresh context.
+8. **Fresh implementation context per ticket.** For each ticket in dependency-safe order, start a new Codex thread and send `$implement <ticket-reference>` plus the originating spec reference.
 9. Let the installed `implement` skill own TDD, verification, `code-review`, and the commit. After stage completion, independently verify that Git `HEAD` changed; otherwise fail closed.
 10. After all tickets complete, record final Git `HEAD`, completed ticket/thread/commit tuples, and mark the run complete.
 
+## `/shipflow` handoff protocol
+
+A Skill invocation cannot safely block a nested Runner process waiting for terminal stdin. `/shipflow` therefore uses Runner handoff mode.
+
+Start:
+
+```bash
+shipflow run "<goal>" --handoff
+```
+
+In handoff mode the Runner executes automatically until one of four externally meaningful states and emits exactly one JSON object on stdout:
+
+```text
+complete
+waiting_for_user
+blocked
+failed
+```
+
+The handoff object includes the run id, active stage, message, state path, durable artifact counts, and final Git head when available.
+
+At `waiting_for_user`, the Runner has already persisted the active Codex thread and upstream question. It exits without reading stdin. `/shipflow` presents that exact engineering decision in the current Codex conversation. After the user replies, `/shipflow` resumes automatically:
+
+```bash
+shipflow resume <run-id> --handoff --answer "<answer>"
+```
+
+The supplied answer is sent to the same active Codex thread. The Runner then continues through later stages automatically until the next human checkpoint or completion.
+
+At `blocked`, the same mechanism preserves the blocker and run id. The user supplies only the information or environment change required to unblock the recorded stage, then `/shipflow` resumes the same run.
+
+Handoff mode never falls back to the old behavior of telling the user to manually invoke another Matt Skill.
+
 ## Human checkpoints
 
-A stage may return `waiting_for_user`. The runner:
+In direct interactive CLI mode, a stage that returns `waiting_for_user` prints the upstream question and reads the answer from stdin.
 
-1. prints the complete upstream question/result,
-2. reads the user's answer,
-3. sends it back to the same Codex thread,
-4. continues only that active stage.
+In `/shipflow` handoff mode, the same checkpoint is persisted and returned to the parent Skill instead. The parent Skill presents the question to the user and supplies the answer through `shipflow resume --handoff --answer ...`.
 
-The runner never answers product, testing-seam, ticket-granularity, setup, or irreversible decisions on the user's behalf. `:abort` stops the run.
+In both modes the runner never answers product, testing-seam, ticket-granularity, setup, or irreversible decisions on the user's behalf. `:abort` stops an interactive run.
 
 This human checkpoint mechanism is separate from Codex tool/shell approval. ShipFlow handles Matt workflow decisions; it does not implement a replacement approval UI for Codex exec.
 
@@ -108,6 +147,7 @@ Persist only orchestration data:
 - repository root, branch, fixed point and final head,
 - current stage/status/checkpoint,
 - setup/planning/active/implementation Codex thread ids,
+- pending human/blocker message,
 - spec reference,
 - ticket references and next ticket index,
 - current ticket and its starting Git head,
@@ -129,6 +169,7 @@ Do not duplicate Matt's spec or ticket bodies into runner state.
 
 Stop with a concrete error when:
 
+- the Runner CLI required by `/shipflow` is unavailable,
 - a required skill is missing or its `name:` frontmatter does not match,
 - the current branch is protected without an explicit override,
 - unrelated working-tree changes exist without an explicit override,
@@ -155,11 +196,17 @@ A completed run proves:
 - the commit produced for each ticket,
 - the final Git head and workflow-complete checkpoint.
 
-Intermediate Codex command executions and file changes may be printed as progress, but raw hidden reasoning is not surfaced.
+Handoff mode additionally proves that human checkpoints can leave the nested Runner process, survive as durable state, and resume the same active Codex thread without manual Skill commands.
+
+Intermediate Codex command executions and file changes may be printed in direct CLI mode, but raw hidden reasoning is not surfaced.
 
 ## Acceptance criteria
 
-- `shipflow run "<goal>" --agent codex` can drive the full route while preserving every upstream human checkpoint.
+- `/shipflow "<goal>"` is autonomous by default and does not instruct the user to manually type another Matt Skill command.
+- `shipflow run "<goal>" --agent codex` can drive the same full route in direct CLI mode.
+- `--handoff` returns a single machine-readable JSON object and never waits on stdin.
+- A `waiting_for_user` handoff persists the exact message, run id, active stage, and thread; `resume --handoff --answer` continues that same thread.
+- A blocked handoff preserves the blocker and remains resumable.
 - No Matt skill body is copied into runner logic.
 - User-invoked Matt skills are sent as explicit top-level Codex skill commands, never recursively invoked from the ShipFlow skill.
 - Setup has an isolated context; grill/spec/tickets share one planning context; every implementation ticket has a fresh context.
@@ -167,4 +214,4 @@ Intermediate Codex command executions and file changes may be printed as progres
 - Explicit Codex options alter only the requested settings; `--safe` restores the conservative MVP preset.
 - Durable state lives outside the working tree and supports safe checkpoint resume without replaying completed stages.
 - Missing artifacts, blockers, malformed control responses, unsupported approval interactions, or missing implementation commits fail closed.
-- Public runner behavior and the Codex adapter boundary are covered by tests rather than tests coupled to private implementation functions.
+- Public Runner and handoff behavior are covered by tests at the workflow/CLI seam rather than tests coupled to private implementation functions.
